@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+# -*- mode: python; coding: utf-8 -*-
+
+import os
+import sys
+
+# fix sys path to include our lib
+DIR_PATH = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, DIR_PATH)
+
+from atool.apk import sysresource
+from atool.apk.axml import AXMLParser
+
+TOOL_NAME = 'apktool'
+COMMANDS = ['dumpxml', 'dumpres', 'dumpsysres']
+
+usage = '''Usage: apktool <command> [options] [args]
+Type 'apktool help <command>' for help of specific command.
+
+Available commands:
+   dumpxml       dump android binary xml
+   dumpres       dump resource
+   dumpsysres    dump resource id from android.jar
+'''
+
+def dump_sysres(cmd, argv):
+    usage = '''<android-jar>'''
+    if len(argv) != 1:
+        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
+        sys.exit(1)
+    try:
+        id_list = sysresource.process_jar(argv[0])
+        for rid in sorted(id_list.keys()):
+            print "%s = 0x%08x" % (id_list[rid], rid)
+    except Exception as e:
+        print >> sys.stderr, e
+        sys.exit(1)
+
+def dump_xml(cmd, argv):
+    usage = '''<binary-xml>'''
+    if len(argv) != 1:
+        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
+        sys.exit(1)
+    try:
+        infile = open(argv[0], "rb")
+        indata = infile.read()
+        infile.close()
+        outfile = sys.stdout
+        parser = AXMLParser(indata, outfile)
+        parser.parsexml()
+    except Exception as e:
+        print >> sys.stderr, e
+        sys.exit(1)
+
+def dump_res(cmd, argv):
+    pass
+
+if len(sys.argv) < 2:
+    print >> sys.stderr, "no command specified, type 'apktoo help' for usage."
+    sys.exit(1)
+
+command = sys.argv[1]
+argv = sys.argv[2:]
+
+if command in ['-h', '-help', '--help', 'help']:
+    print usage,
+    sys.exit(0)
+
+if command not in COMMANDS:
+    print >> sys.stderr, "apktool: unknown command '%s'. See 'apktool help'." % (command)
+elif command == 'dumpxml':
+    dump_xml(command, argv)
+elif command == 'dumpsysres':
+    dump_sysres(command, argv)
+elif command == 'dumpres':
+    dump_res(command, argv)
