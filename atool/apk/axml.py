@@ -481,3 +481,58 @@ class AXMLParser:
         else:
             root.dump(0)
 
+class ResourceParser(AXMLParser):
+    def __init__(self, data, outfile, debug=False):
+        AXMLParser.__init__(self, data, outfile, debug)
+
+    def parse_package(offset=0):
+        data = self.data
+        debug = self.debug
+        (htype, hsize, size, pkgid) = unpack('<HHII', data[offset:offset+12])
+
+        if pkgid < 1 or pkgid >= 256:
+            print_debug("Skins not supported (package id: %d)" % (pkgid))
+            return
+        off = offset + 12
+        # package name are UTF-16 encoded with NULL terminated, 128 bytes at most
+        end = off
+        while end < off + 128 and data[end:end+2] != '\x00\x00':
+            end += 2
+        pkgname = data[off:end].decode('UTF-16LE')
+        off += 128
+        (typeStrings, lastPublicType, keyStrings, lastPublicKey) = unpack('<IIII', data[off:off+16])
+        off += 16
+        off = offset + hsize
+        while off + 8 <= len(data):
+            (htype, hsize, size) = self.parse_header(offset, True)
+            if htype == RES_TABLE_TYPE_SPEC_TYPE:
+                pass
+            elif htype == RES_TABLE_TYPE_TYPE:
+                pass
+            else:
+                print_debug("Unknown chunk type 0x%04x in package chunk" % (htype))
+            
+    def parse_resources(self):
+        offset = 0
+        data = self.data
+        debug = self.debug
+
+        if len(data) < 12:
+            error("invalid resource table file ( size < 12)")
+        (htype, hsize, size) = self.parse_header(offset, True)
+        if htype != RES_TABLE_TYPE:
+            error("invalid binary xml with header type 0x%04x (expect %#04x)" % (htype, RES_TABLE_TYPE))
+        (pkg_count,) = unpack('<I', data[offset+8:offset+12])
+        offset += hsize
+        while offset < len(data):
+            (htype, hsize, size) = self.parse_header(offset, True)
+            if htype == RES_STRING_POOL_TYPE:
+                if self.strpool:
+                    print_debug("duplicate StringPool (0x%04x, %d, %d) offset %d" % (htype, hsize, size, offset))
+                else:
+                    self.strpool = self.parse_stringpool(offset)
+            elif htype == RES_TABLE_PACKAGE_TYPE:
+                self.parse_package(offset)
+            else:
+                print_debug("Skipping unknown chunk: (0x04x, %d, %d) offset %d" % (htype, hsize, size, offset))
+            offset += size

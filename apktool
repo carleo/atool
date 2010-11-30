@@ -8,9 +8,6 @@ import sys
 DIR_PATH = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, DIR_PATH)
 
-from atool.apk import sysresource
-from atool.apk.axml import AXMLParser
-
 TOOL_NAME = 'apktool'
 COMMANDS = ['dumpxml', 'dumpres', 'dumpsysres']
 
@@ -24,6 +21,8 @@ Available commands:
 '''
 
 def dump_sysres(cmd, argv):
+    from atool.apk import sysresource
+
     usage = '''<android-jar>'''
     if len(argv) != 1:
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
@@ -37,6 +36,7 @@ def dump_sysres(cmd, argv):
         sys.exit(1)
 
 def dump_xml(cmd, argv):
+    from atool.apk.axml import AXMLParser
     usage = '''<binary-xml>'''
     if len(argv) != 1:
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
