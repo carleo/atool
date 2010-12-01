@@ -59,7 +59,7 @@ some structures:
 
 import sys
 import os
-from struct import unpack
+from struct import unpack, pack
 
 # chunk header size
 HEADER_SIZE = 8
@@ -155,6 +155,50 @@ TYPE_LAST_INT = 0x1f
 UTF8_FLAG = 1 << 0
 SORTED_FLAG = 1 << 8
 
+# for complex data values (TYPE_UNIT and TYPE_FRACTION)
+# Where the unit type information is.  This gives us 16 possible
+# types, as defined below.
+COMPLEX_UNIT_SHIFT = 0
+COMPLEX_UNIT_MASK = 0xf
+
+# TYPE_DIMENSION: Value is raw pixels.
+COMPLEX_UNIT_PX = 0
+# TYPE_DIMENSION: Value is Device Independent Pixels.
+COMPLEX_UNIT_DIP = 1
+# TYPE_DIMENSION: Value is a Scaled device independent Pixels.
+COMPLEX_UNIT_SP = 2
+# TYPE_DIMENSION: Value is in points.
+COMPLEX_UNIT_PT = 3
+# TYPE_DIMENSION: Value is in inches.
+COMPLEX_UNIT_IN = 4
+# TYPE_DIMENSION: Value is in millimeters.
+COMPLEX_UNIT_MM = 5
+
+# TYPE_FRACTION: A basic fraction of the overall size.
+COMPLEX_UNIT_FRACTION = 0
+# TYPE_FRACTION: A fraction of the parent size.
+COMPLEX_UNIT_FRACTION_PARENT = 1
+
+# Where the radix information is, telling where the decimal place
+# appears in the mantissa.  This give us 4 possible fixed point
+# representations as defined below.
+COMPLEX_RADIX_SHIFT = 4
+COMPLEX_RADIX_MASK = 0x3
+
+# The mantissa is an integral number -- i.e., 0xnnnnnn.0
+COMPLEX_RADIX_23p0 = 0
+# The mantissa magnitude is 16 bits -- i.e, 0xnnnn.nn
+COMPLEX_RADIX_16p7 = 1
+# The mantissa magnitude is 8 bits -- i.e, 0xnn.nnnn
+COMPLEX_RADIX_8p15 = 2
+# The mantissa magnitude is 0 bits -- i.e, 0x0.nnnnnn
+COMPLEX_RADIX_0p23 = 3
+
+# Where the actual value is.  This gives us 23 bits of
+# precision.  The top bit is the sign.
+COMPLEX_MANTISSA_SHIFT = 8
+COMPLEX_MANTISSA_MASK = 0xffffff
+
 class StringPool:
     def __init__(self):
         self.stringCount = 0
@@ -218,6 +262,20 @@ def error(msg):
 def print_debug(msg):
     print >> sys.stderr, msg
 
+def int2float(value):
+    '''interpret bytes int as float'''
+    s = pack("<I", value)
+    return unpack("f", s)
+
+def print_float(value):
+    strval = "%f" % (value)
+    # strip trailing zeros
+    if strval.find(".") != -1:
+        strval = strval.rstrip("0").rstrip(".")
+        if strval == "":
+            strval = "0"
+    return strval
+    
 class AXMLParser:
     def __init__(self, data, outfile, debug=False):
         self.data = data
@@ -231,6 +289,43 @@ class AXMLParser:
         self.resids = []
         self.error = False
         self.curnode = XMLNode("")
+
+        self.mantissa_mult = 1.0 / (1 << COMPLEX_MANTISSA_SHIFT)
+        self.radix_mults = []
+        self.radix_mults.append(1.0 * self.mantissa_mult)
+        self.radix_mults.append(1.0 / ( 1 << 7) * self.mantissa_mult)
+        self.radix_mults.append(1.0 / ( 1 << 15) * self.mantissa_mult)
+        self.radix_mults.append(1.0 / ( 1 << 23) * self.mantissa_mult)
+        
+
+    def decode_complex(self, complexvalue, isfraction):
+        value = ((complexvalue & (COMPLEX_MANTISSA_MASK << COMPLEX_MANTISSA_SHIFT))
+                 * self.radix_mults[(complexvalue >> COMPLEX_RADIX_SHIFT) & COMPLEX_RADIX_MASK])
+        strval = print_float(value)
+        unit = ((complexvalue >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK)
+        if not isfraction:
+            if unit == COMPLEX_UNIT_PX:
+                strval += "px"
+            elif unit == COMPLEX_UNIT_DIP:
+                strval += "dp"
+            elif unit == COMPLEX_UNIT_SP:
+                strval += "sp"
+            elif unit == COMPLEX_UNIT_PT:
+                strval += "pt"
+            elif unit == COMPLEX_UNIT_IN:
+                strval += "in"
+            elif unit == COMPLEX_UNIT_MM:
+                strval += "mm"
+            else:
+                strval += " (unknown unit)"
+        else:
+            if unit == COMPLEX_UNIT_FRACTION:
+                strval += "%"
+            elif unit == COMPLEX_UNIT_FRACTION_PARENT:
+                strval += "%p"
+            else:
+                strval += " (unknown unit)"
+        return strval
 
     def parse_header(self, offset, debugenabled=False):
         data = self.data
@@ -405,12 +500,20 @@ class AXMLParser:
                 value = self.strpool.get_string(valueid)
                 if value == None:
                     error("can not get string attribute value #%d in pool" % (valueid))
+            elif a_type == TYPE_FLOAT:
+                value = print_float(int2float(a_data))
+            elif a_type == TYPE_DIMENSION:
+                value = self.decode_complex(a_data, False)
+            elif a_type == TYPE_FRACTION:
+                value = self.decode_complex(a_data, True)
             elif a_type == TYPE_INT_DEC:
                 value = "%d" % (a_data)
             elif a_type == TYPE_INT_HEX:
                 value = "0x%x" % (a_data)
             elif a_type == TYPE_INT_BOOLEAN:
                 value = a_data == 0 and "false" or "true"
+            elif a_type == TYPE_INT_COLOR_ARGB8:
+                value = "#%08x" % (a_data)
             else:
                 value = "(type 0x%x)0x%x" % (a_type, a_data)
             attr = XMLAttribute(ns + name, value)
