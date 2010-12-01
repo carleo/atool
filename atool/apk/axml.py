@@ -175,8 +175,8 @@ TYPE_LAST_COLOR_INT = 0x1f
 TYPE_LAST_INT = 0x1f
 
 # StringPool header flags
-UTF8_FLAG = 1 << 0
-SORTED_FLAG = 1 << 8
+SORTED_FLAG = 1<<0
+UTF8_FLAG = 1<<8
 
 # for complex data values (TYPE_UNIT and TYPE_FRACTION)
 # Where the unit type information is.  This gives us 16 possible
@@ -426,10 +426,6 @@ class AXMLParser:
                 off += 4
             if stringStart >= size:
                 error("Bad string block: string pool starts at %d after chunk size %d" % (stringStart, size))
-            if flags & UTF8_FLAG:
-                charsize = 1
-            else:
-                charsize = 2
             if styleCount == 0:
                 poolsize = size - stringStart
             else:
@@ -444,23 +440,40 @@ class AXMLParser:
                 if off + 1 > poolsize:
                     error("Bad string block: string #%d entry is at %d, past end at %d" % (i, off, poolsize))
                 off += pooloff
-                (strlen,) = unpack('<H', data[off:off+2])
-                off += 2
-                if strlen & 0x8000:
-                    strlen = (strlen & ~0x8000) << 16 | unpack('<H', data[off:off+2])
-                    off += 2
-                if off + strlen >= poolsize + pooloff:
-                    error("Bad string block: string #%d entry is at %d, past end at %d" % (i, off, poolsize))
-                # if debug:
-                #     print_debug("  string (%d len=%d, off=%d)" % (i, strlen, off))
                 if flags & UTF8_FLAG:
-                    error("UTF-8 encoded StringPool are not supported now")
+                    (outLen,) = unpack('B', data[off:off+1])
+                    off += 1
+                    if outLen & 0x80:
+                        (tempval,) = unpack('B', data[off:off+1])
+                        outLen = ((outLen & 0x7f) << 8) | tempval
+                        off += 1
+                    (strlen,) = unpack('B', data[off:off+1])
+                    off += 1
+                    if strlen & 0x80:
+                        (tempval,) = unpack('B', data[off:off+1])
+                        strlen = ((strlen & 0x7f) << 8) | tempval
+                        off += 1
+                    if off + strlen >= poolsize + pooloff:
+                        error("Bad string block: string #%d entry is at %d with length %d past end at %d" % (i, off, strlen, poolsize+pooloff))
+                    # if debug:
+                    #     print_debug("  string #%d %d %d %d" % (i, pooloff + sp.entries[i], off, strlen))
+                    s = data[off:off+strlen].decode('UTF-8').encode('UTF-8')
                 else:
+                    (strlen,) = unpack('<H', data[off:off+2])
+                    off += 2
+                    if strlen & 0x8000:
+                        (tempval,) = unpack('<H', data[off:off+2])
+                        strlen = ((strlen & 0x7fff) << 16) | tempval
+                        off += 2
                     strlen *= 2
+                    if off + strlen >= poolsize + pooloff:
+                        error("Bad string block: string #%d entry is at %d with length %d past end at %d" % (i, off, strlen, poolsize + pooloff))
+                    # if debug:
+                    #     print_debug("  string #%d %d %d %d" % (i, pooloff + sp.entries[i], off, strlen))
                     s = data[off:off+strlen].decode('UTF-16LE').encode('UTF-8')
                 sp.entries[i] = s
-                if debug:
-                    print_debug("    [%d] '%s'" % (i, s))
+                # if debug:
+                #     print_debug("    [%d] %d %d" % (i, off, strlen))
         return sp
 
     def parse_startns(self, offset):
@@ -705,8 +718,8 @@ class ResourceParser(AXMLParser):
             if off + 16 > end:
                 error("ResTable_type entry #%d position to %d extends chunk size %d" % (entriesStart + index, size))
             (entrysize, flags, key) = unpack('<HHI', data[off:off+8])
-            if debug:
-                print_debug("    ResTable_type entry #%d size=%d flags=0x%04x key=%d" % (i, entrysize, flags, key))
+            # if debug:
+            #     print_debug("    ResTable_type entry #%d size=%d flags=0x%04x key=%d" % (i, entrysize, flags, key))
             entryname = package.keyPool.get_string(key)
             if entryname == None:
                 error("can not get entry #%d name with index %d" % (i, key))
