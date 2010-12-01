@@ -55,6 +55,29 @@ some structures:
         StringPool_ref rawValue
         Res_value typedValue
 
+
+    ResTable_typeSpec (16 bytes):
+        Chunk_header header
+        uint8_t id
+        uint8_t res0
+        uint16_t res1
+        uint32_t entryCount
+
+    ResTable_config is a complex struct with many union, its size is 32 bytes
+
+    ResTable_type (52 bytes):
+        Chunk_header header
+        uint8_t id
+        uint8_t res0
+        uint16_t res1
+        uint32_t entryCount
+        uint32_t entriesStart
+        ResTable_config config
+
+    ResTable_entry (8 bytes):
+        uint16_t size
+        uint16_t flags
+        StringPool_ref key
 '''
 
 import sys
@@ -199,6 +222,13 @@ COMPLEX_RADIX_0p23 = 3
 COMPLEX_MANTISSA_SHIFT = 8
 COMPLEX_MANTISSA_MASK = 0xffffff
 
+# flag for ResTable_entry
+FLAG_COMPLEX = 0x0001
+
+# no entry defined
+NO_ENTRY = 0xffffffff
+
+
 class StringPool:
     def __init__(self):
         self.stringCount = 0
@@ -210,6 +240,14 @@ class StringPool:
             return self.entries[idx]
         else:
             return None
+
+class ResPackage:
+    def __init__(self):
+        self.id = 0
+        self.typePool = None
+        self.keyPool = None
+        self.name = ""
+        self.entries = {}
 
 class XMLAttribute:
     def __init__(self, name, value):
@@ -282,10 +320,13 @@ class AXMLParser:
         self.outfile = outfile
         self.debug = debug
 
+        self.reference = {}
+
         self.namespaces = []
         self.savedns = []
         self.depth = 0
         self.strpool = StringPool()
+        self.strpool_found = False
         self.resids = []
         self.error = False
         self.curnode = XMLNode("")
@@ -297,6 +338,9 @@ class AXMLParser:
         self.radix_mults.append(1.0 / ( 1 << 15) * self.mantissa_mult)
         self.radix_mults.append(1.0 / ( 1 << 23) * self.mantissa_mult)
         
+
+    def set_refrence(self, ref):
+        self.reference = ref
 
     def decode_complex(self, complexvalue, isfraction):
         value = ((complexvalue & (COMPLEX_MANTISSA_MASK << COMPLEX_MANTISSA_SHIFT))
@@ -490,10 +534,18 @@ class AXMLParser:
             name = self.strpool.get_string(nameid)
             if name == None:
                 error("can not get attribute name #%d in pool" % (nameid))
+            fullname = ns + name
             if a_type == TYPE_NULL:
                 value = "(null)"
             elif a_type == TYPE_REFERENCE:
-                value = "@0x%x" % (a_data)
+                if a_data in self.reference:
+                    # new id
+                    if fullname == "android:id":
+                        value = "@+%s" % (self.reference[a_data])
+                    else:
+                        value = "@%s" % (self.reference[a_data])
+                else:
+                    value = "@0x%x" % (a_data)
             elif a_type == TYPE_ATTRIBUTE:
                 value= "?0x%x" % (a_data)
             elif a_type == TYPE_STRING:
@@ -516,7 +568,7 @@ class AXMLParser:
                 value = "#%08x" % (a_data)
             else:
                 value = "(type 0x%x)0x%x" % (a_type, a_data)
-            attr = XMLAttribute(ns + name, value)
+            attr = XMLAttribute(fullname, value)
             node.addAttr(attr)
             if debug:
                 print_debug("    ATTR %s=%s" % (attr.name, attr.value))
@@ -556,6 +608,7 @@ class AXMLParser:
                 # if strpool:
                 #     error("duplicate StringPool (0x%04x, %d, %d) offset %d" % (htype, hsize, size, offset))
                 self.strpool = self.parse_stringpool(offset)
+                self.strpool_found = True
             elif htype == RES_XML_RESOURCE_MAP_TYPE:
                 self.resids = self.parse_resourcemap(offset)
             elif htype >= RES_XML_FIRST_CHUNK_TYPE and htype <= RES_XML_LAST_CHUNK_TYPE:
@@ -588,7 +641,87 @@ class ResourceParser(AXMLParser):
     def __init__(self, data, outfile, debug=False):
         AXMLParser.__init__(self, data, outfile, debug)
 
-    def parse_package(offset=0):
+    def _parse_table_spectype(self, offset=0):
+        data = self.data
+        debug = self.debug
+        (htype, hsize, size) = self.parse_header(offset)
+        off = offset + HEADER_SIZE
+        (specId,) = unpack('B', data[off:off+1])
+        off += 4
+        (entryCount,) = unpack('<I', data[off:off+4])
+        # check int overflow when multiplying by 4
+        if entryCount > (1 << 30) or hsize + 4 * entryCount > size:
+            error("ResTable_typeSpec entry extends beyond chunk end %d" % (size))
+        if specId == 0:
+            error("ResTable_typeSpec has id of 0")
+        if debug:
+            print_debug("  ResTable_typeSpec id=%d entryCount=%d" % (specId, entryCount))
+
+        # off = offset + hsize
+        # for i in xrange(0, entryCount):
+        #     (flag,) = unpack('<I', data[off:off+4])
+        #     off += 4
+        #     print_debug("    flag #%d 0x%08x" % (i, flag))
+
+    def _parse_table_typetype(self, package, offset=0):
+        data = self.data
+        debug = self.debug
+
+        if package.typePool == None or package.keyPool == None:
+            print_debug("[WARN] ResTable_type before type or key pool")
+            return
+        (htype, hsize, size) = self.parse_header(offset)
+        if hsize < 52:
+            error("ResTable_type header size %d less than 52" % (hsize))
+        off = offset + HEADER_SIZE
+        (typeId,) = unpack('B', data[off:off+1])
+        off += 4
+        (entryCount, entriesStart) = unpack('<II', data[off:off+8])
+        if debug:
+            print_debug("  ResTable_type id=%d entryCount=%d entriesStart=%d" % (typeId, entryCount, entriesStart))
+        if hsize + 4 * entryCount > size:
+            error("ResTable_type entry extends beyond chunk end")
+        if entryCount != 0 and entriesStart > (size - 8):
+            error("ResTable_type entriesStart at %d extends chunk end %d" % (entriesStart, size))
+        if typeId == 0:
+            error("ResTable_type has id of 0")
+        if package.typePool.get_string(typeId - 1) == None:
+            print_debug("ResTable_type skip type %d not in pool" % (typeId))
+            return
+        if entryCount == 0:
+            return
+        entryindices = []
+        off = offset + 52
+        for i in xrange(0, entryCount):
+            (index,) = unpack('<I', data[off:off+4])
+            entryindices.append(index)
+            off += 4
+        end = offset + size
+        for i in xrange(0, entryCount):
+            index = entryindices[i]
+            if index == NO_ENTRY:
+                continue
+            off = offset + entriesStart + index
+            if off + 16 > end:
+                error("ResTable_type entry #%d position to %d extends chunk size %d" % (entriesStart + index, size))
+            (entrysize, flags, key) = unpack('<HHI', data[off:off+8])
+            if debug:
+                print_debug("    ResTable_type entry #%d size=%d flags=0x%04x key=%d" % (i, entrysize, flags, key))
+            entryname = package.keyPool.get_string(key)
+            if entryname == None:
+                error("can not get entry #%d name with index %d" % (i, key))
+            typeIndex = typeId - 1
+            entryname = "%s/%s" % (package.typePool.get_string(typeIndex), entryname)
+            resid = self._make_res_id(package.id, typeIndex, i)
+            package.entries[resid] = entryname
+            # print_debug("  resource entry 0x%08x %s" % (resid, entryname))
+
+    def _make_res_id(self, pkgId, typeIndex, entryIndex):
+        return ((0xff000000 & (pkgId << 24)) |
+                (0x00ff0000 & ((typeIndex + 1) << 16)) |
+                (0x0000ffff & (entryIndex)) )
+
+    def _parse_package(self, offset=0):
         data = self.data
         debug = self.debug
         (htype, hsize, size, pkgid) = unpack('<HHII', data[offset:offset+12])
@@ -597,45 +730,61 @@ class ResourceParser(AXMLParser):
             print_debug("Skins not supported (package id: %d)" % (pkgid))
             return
         off = offset + 12
-        # package name are UTF-16 encoded with NULL terminated, 128 bytes at most
+        # package name are UTF-16 encoded with NULL terminated, 128 * 2 bytes at most
         end = off
-        while end < off + 128 and data[end:end+2] != '\x00\x00':
+        while end < off + 256 and data[end:end+2] != '\x00\x00':
             end += 2
         pkgname = data[off:end].decode('UTF-16LE')
-        off += 128
+        off += 256
         (typeStrings, lastPublicType, keyStrings, lastPublicKey) = unpack('<IIII', data[off:off+16])
-        off += 16
+        if debug:
+            print_debug("package: %d %s typePool=%d keyPool=%d" % (pkgid, pkgname, typeStrings, keyStrings))
+        package = ResPackage()
+        package.id = pkgid
+        package.name = pkgname
         off = offset + hsize
         while off + 8 <= len(data):
-            (htype, hsize, size) = self.parse_header(offset, True)
+            (htype, hsize, size) = self.parse_header(off, True)
             if htype == RES_TABLE_TYPE_SPEC_TYPE:
-                pass
+                self._parse_table_spectype(off)
             elif htype == RES_TABLE_TYPE_TYPE:
-                pass
+                self._parse_table_typetype(package, off)
+            elif htype == RES_STRING_POOL_TYPE:
+                if off == offset + typeStrings:
+                    package.typePool = self.parse_stringpool(off)
+                elif off == offset + keyStrings:
+                    package.keyPool = self.parse_stringpool(off)
+                else:
+                    print_debug("skip extra string pool at %d in ResPackage" % (off))
             else:
                 print_debug("Unknown chunk type 0x%04x in package chunk" % (htype))
-            
+            off += size
+        return package
+
     def parse_resources(self):
         offset = 0
         data = self.data
         debug = self.debug
-
+        entry_map = {}
         if len(data) < 12:
             error("invalid resource table file ( size < 12)")
         (htype, hsize, size) = self.parse_header(offset, True)
         if htype != RES_TABLE_TYPE:
-            error("invalid binary xml with header type 0x%04x (expect %#04x)" % (htype, RES_TABLE_TYPE))
+            error("invalid resource file with header type 0x%04x (expect %#04x)" % (htype, RES_TABLE_TYPE))
         (pkg_count,) = unpack('<I', data[offset+8:offset+12])
         offset += hsize
         while offset < len(data):
             (htype, hsize, size) = self.parse_header(offset, True)
             if htype == RES_STRING_POOL_TYPE:
-                if self.strpool:
+                if self.strpool_found:
                     print_debug("duplicate StringPool (0x%04x, %d, %d) offset %d" % (htype, hsize, size, offset))
                 else:
                     self.strpool = self.parse_stringpool(offset)
             elif htype == RES_TABLE_PACKAGE_TYPE:
-                self.parse_package(offset)
+                package = self._parse_package(offset)
+                entry_map.update(package.entries)
             else:
                 print_debug("Skipping unknown chunk: (0x04x, %d, %d) offset %d" % (htype, hsize, size, offset))
             offset += size
+
+        return entry_map
