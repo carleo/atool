@@ -11,6 +11,7 @@ sys.path.insert(0, DIR_PATH)
 from atool.apk import sysresource
 from atool.apk.axml import AXMLParser
 from atool.apk.axml import ResourceParser
+from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
 COMMANDS = ['dumpxml', 'dumpres', 'dumpsysres']
@@ -38,14 +39,19 @@ def dump_sysres(cmd, argv):
         sys.exit(1)
 
 def dump_xml(cmd, argv):
-    usage = '''<binary-xml> <android.jar> <resources.arsc>'''
+    usage = '''<binary-xml> <sys_resources.arsc> <resources.arsc>'''
     if len(argv) != 3:
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
         sys.exit(1)
-    res_map = {}
+    restable = ResObject()
     try:
-        m = sysresource.process_jar(argv[1])
-        res_map.update(m)
+        infile = open(argv[1], "rb")
+        indata = infile.read()
+        infile.close()
+        outfile = sys.stdout
+        parser = ResourceParser(indata, outfile)
+        m = parser.parse_resources()
+        restable.update(m)
     except Exception as e:
         print >> sys.stderr, "failed to process system resource:", e
 
@@ -56,7 +62,7 @@ def dump_xml(cmd, argv):
         outfile = sys.stdout
         parser = ResourceParser(indata, outfile)
         m = parser.parse_resources()
-        res_map.update(m)
+        restable.update(m)
     except Exception as e:
         print >> sys.stderr, "failed to process resource: ", e
 
@@ -66,7 +72,7 @@ def dump_xml(cmd, argv):
         infile.close()
         outfile = sys.stdout
         parser = AXMLParser(indata, outfile)
-        parser.set_refrence(res_map)
+        parser.set_restable(restable)
         parser.parsexml()
     except Exception as e:
         print >> sys.stderr, e
@@ -77,18 +83,14 @@ def dump_res(cmd, argv):
     if len(argv) != 1:
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
         sys.exit(1)
-    try:
-        infile = open(argv[0], "rb")
-        indata = infile.read()
-        infile.close()
-        outfile = sys.stdout
-        parser = ResourceParser(indata, outfile)
-        entries = parser.parse_resources()
-        for k in sorted(entries.keys()):
-            print "0x%08x %s" % (k, entries[k])
-    except Exception as e:
-        print >> sys.stderr, e
-        sys.exit(1)
+    infile = open(argv[0], "rb")
+    indata = infile.read()
+    infile.close()
+    outfile = sys.stdout
+    parser = ResourceParser(indata, outfile, False)
+    entries = parser.parse_resources()
+    # for k in sorted(entries.keys()):
+    #     print "0x%08x %s" % (k, entries[k])
 
 if len(sys.argv) < 2:
     print >> sys.stderr, "no command specified, type 'apktoo help' for usage."

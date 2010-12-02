@@ -222,12 +222,6 @@ COMPLEX_RADIX_0p23 = 3
 COMPLEX_MANTISSA_SHIFT = 8
 COMPLEX_MANTISSA_MASK = 0xffffff
 
-# flag for ResTable_entry
-FLAG_COMPLEX = 0x0001
-
-# no entry defined
-NO_ENTRY = 0xffffffff
-
 
 class StringPool:
     def __init__(self):
@@ -241,13 +235,63 @@ class StringPool:
         else:
             return None
 
-class ResPackage:
+class ResObject:
     def __init__(self):
-        self.id = 0
+        self.id_map = {}
+        self.name_map = {}
+
+    def add(self, item):
+        if self.id_map.has_key(item.id):
+            name = self.id_map[item.id].name
+            if name != item.name:
+                return False
+        self.id_map[item.id] = item
+        self.name_map[item.name] = item
+        return True
+
+    def update(self, resource):
+        for item in resource.id_map.values():
+            self.add(item)
+
+    def get_by_id(self, objid):
+        return self.id_map.get(objid)
+
+    def get_by_name(self, name):
+        return self.name_map.get(name)
+
+class ResIdObject(ResObject):
+    def __init__(self, myid, name):
+        ResObject.__init__(self)
+        self.id = myid
+        self.name = name
+
+class ResPackage(ResIdObject):
+    def __init__(self, pkgid, name):
         self.typePool = None
         self.keyPool = None
-        self.name = ""
-        self.entries = {}
+        ResIdObject.__init__(self, pkgid, name)
+
+class ResTableEntry:
+    INDEX_ATTR = 0x00
+
+    FLAG_COMPLEX = 0x0001
+
+    # no entry defined
+    NO_ENTRY = 0xffffffff
+
+    TYPE_ENUM = 1 << 16
+    TYPE_FLAGS = 1 << 17
+
+    def __init__(self, eid, name):
+        self.id = eid
+        self.name = name
+        self.typecode = 0
+        # indicate resolve staus of extra
+        #   None:  not resolved
+        #   False: resolve failed
+        #   True:  resolve succeed
+        self.resolved = None
+        self.extra = {}
 
 class XMLAttribute:
     def __init__(self, name, value):
@@ -320,7 +364,7 @@ class AXMLParser:
         self.outfile = outfile
         self.debug = debug
 
-        self.reference = {}
+        self.restable = ResObject()
 
         self.namespaces = []
         self.savedns = []
@@ -339,8 +383,131 @@ class AXMLParser:
         self.radix_mults.append(1.0 / ( 1 << 23) * self.mantissa_mult)
         
 
-    def set_refrence(self, ref):
-        self.reference = ref
+    def make_res_id(self, pkgid, typeid, entryid):
+        return ((0xff000000 & (pkgid << 24)) |
+                (0x00ff0000 & ((typeid) << 16)) |
+                (0x0000ffff & (entryid)) )
+
+    def decode_res_id(self, resid):
+        pkgid = (resid >> 24) & 0xff
+        typeid = (resid >> 16) & 0xff
+        entryid = resid & 0xffff
+        return (pkgid, typeid, entryid)
+
+    def set_restable(self, restable):
+        self.restable = restable
+
+    def get_intattr_valuestr(self, pkgname, name, data, value_type):
+        valuestr = "%d" % (data)
+        if value_type != TYPE_INT_DEC and value_type != TYPE_INT_HEX:
+            return valuestr
+        if value_type == TYPE_INT_HEX:
+            valuestr = "0x%x" % (data)
+        # one pass loop, just for quick break
+        for i in xrange(0, 1):
+            if self.restable == None:
+                break
+            pkgname = pkgname.rstrip(":")
+            if pkgname == "":
+                break
+            package = self.restable.get_by_name(pkgname)
+            if package == None:
+                break
+            attr_type = package.get_by_name('attr')
+            if attr_type == None:
+                break
+            entry = attr_type.get_by_name(name)
+            if entry == None:
+                break
+            if value_type == TYPE_INT_DEC and not (entry.typecode & ResTableEntry.TYPE_ENUM):
+                break
+            if value_type == TYPE_INT_HEX and not (entry.typecode & ResTableEntry.TYPE_FLAGS):
+                break
+            if entry.resolved == None:
+                self.resolve_attr_extra(entry)
+            if not entry.resolved:
+                break
+            if value_type == TYPE_INT_DEC:
+                for (k, v) in entry.extra.items():
+                    if k == data:
+                        return str(v)
+                break
+            else:
+                if data == 0:
+                    break
+                # more than one flag may set same bit
+                val = 0
+                include = []
+                for (k, v) in entry.extra.items():
+                    if (k & data) == k:
+                        val = val | k
+                        include.append(k)
+                if val != data:
+                    break
+                # flag may be redundant
+                if len(include) > 1:
+                    keep = [True] * len(include)
+                    include.sort()
+                    size = len(include)
+                    for i in xrange(0, size):
+                        val = 0
+                        for j in xrange(0, size):
+                            if j != i and keep[j]:
+                                val = val | include[j]
+                        if (val | include[i]) == val:
+                            keep[i] = False
+                    rest = []
+                    for i in xrange(0, size):
+                        if keep[i]:
+                            rest.append(include[i])
+                    include = rest
+                # never true, just in case
+                if len(include) < 1:
+                    break
+                return '|'.join([entry.extra[k] for k in include])
+        return valuestr
+
+    def resolve_attr_extra(self, entry):
+        if entry.resolved != None:
+            return
+        extra = {}
+        for (k, v) in entry.extra.items():
+            ref = self.dereference_resource(v)
+            if ref == None:
+                entry.resolved = False
+                return
+            (pkgname, typename, entryname) = ref
+            if typename != "id":
+                entry.resolved = False
+                return
+            extra[k] = entryname
+        entry.resolved = True
+        entry.extra = extra
+
+    def dereference_resource(self, resid):
+        if self.restable == None:
+            return None
+        (pid, tid, eid) = self.decode_res_id(resid)
+        package = self.restable.get_by_id(pid)
+        if package == None:
+            return None
+        restype = package.get_by_id(tid)
+        if restype == None:
+            return None
+        entry = restype.get_by_id(eid)
+        if entry == None:
+            return None
+        return (package.name, restype.name, entry.name)
+
+    def get_refer_name(self, resid):
+        refer = self.dereference_resource(resid)
+        if refer == None:
+            return "0x%08x" % (resid)
+        (pkgname, typename, entryname) = refer
+        if pkgname == "android":
+            return "android:%s/%s" % (typename, entryname)
+        else:
+            return "%s/%s" % (typename, entryname)
 
     def decode_complex(self, complexvalue, isfraction):
         value = ((complexvalue & (COMPLEX_MANTISSA_MASK << COMPLEX_MANTISSA_SHIFT))
@@ -551,14 +718,12 @@ class AXMLParser:
             if a_type == TYPE_NULL:
                 value = "(null)"
             elif a_type == TYPE_REFERENCE:
-                if a_data in self.reference:
-                    # new id
-                    if fullname == "android:id":
-                        value = "@+%s" % (self.reference[a_data])
-                    else:
-                        value = "@%s" % (self.reference[a_data])
+                value = self.get_refer_name(a_data)
+                # new id
+                if fullname == "android:id":
+                    value = "@+%s" % (value)
                 else:
-                    value = "@0x%x" % (a_data)
+                    value = "@%s" % (value)
             elif a_type == TYPE_ATTRIBUTE:
                 value= "?0x%x" % (a_data)
             elif a_type == TYPE_STRING:
@@ -572,9 +737,9 @@ class AXMLParser:
             elif a_type == TYPE_FRACTION:
                 value = self.decode_complex(a_data, True)
             elif a_type == TYPE_INT_DEC:
-                value = "%d" % (a_data)
+                value = self.get_intattr_valuestr(ns, name, a_data, a_type)
             elif a_type == TYPE_INT_HEX:
-                value = "0x%x" % (a_data)
+                value = self.get_intattr_valuestr(ns, name, a_data, a_type)
             elif a_type == TYPE_INT_BOOLEAN:
                 value = a_data == 0 and "false" or "true"
             elif a_type == TYPE_INT_COLOR_ARGB8:
@@ -654,7 +819,7 @@ class ResourceParser(AXMLParser):
     def __init__(self, data, outfile, debug=False):
         AXMLParser.__init__(self, data, outfile, debug)
 
-    def _parse_table_spectype(self, offset=0):
+    def parse_table_spectype(self, offset=0):
         data = self.data
         debug = self.debug
         (htype, hsize, size) = self.parse_header(offset)
@@ -676,7 +841,7 @@ class ResourceParser(AXMLParser):
         #     off += 4
         #     print_debug("    flag #%d 0x%08x" % (i, flag))
 
-    def _parse_table_typetype(self, package, offset=0):
+    def parse_table_typetype(self, package, offset=0):
         data = self.data
         debug = self.debug
 
@@ -684,57 +849,119 @@ class ResourceParser(AXMLParser):
             print_debug("[WARN] ResTable_type before type or key pool")
             return
         (htype, hsize, size) = self.parse_header(offset)
-        if hsize < 52:
+        if hsize < 48:
             error("ResTable_type header size %d less than 52" % (hsize))
         off = offset + HEADER_SIZE
-        (typeId,) = unpack('B', data[off:off+1])
+        (typeid,) = unpack('B', data[off:off+1])
         off += 4
         (entryCount, entriesStart) = unpack('<II', data[off:off+8])
+        typeindex = typeid - 1
         if debug:
-            print_debug("  ResTable_type id=%d entryCount=%d entriesStart=%d" % (typeId, entryCount, entriesStart))
+            print_debug("  ResTable_type id=%d entryCount=%d entriesStart=%d %s"
+                        % (typeid, entryCount, entriesStart, package.typePool.get_string(typeindex)))
         if hsize + 4 * entryCount > size:
             error("ResTable_type entry extends beyond chunk end")
         if entryCount != 0 and entriesStart > (size - 8):
             error("ResTable_type entriesStart at %d extends chunk end %d" % (entriesStart, size))
-        if typeId == 0:
+        if typeid == 0:
             error("ResTable_type has id of 0")
-        if package.typePool.get_string(typeId - 1) == None:
-            print_debug("ResTable_type skip type %d not in pool" % (typeId))
+        typename = package.typePool.get_string(typeindex)
+        if typename == None:
+            print_debug("ResTable_type skip type %d not in pool" % (typeid))
             return
         if entryCount == 0:
             return
-        entryindices = []
-        off = offset + 52
-        for i in xrange(0, entryCount):
-            (index,) = unpack('<I', data[off:off+4])
-            entryindices.append(index)
-            off += 4
+        restype = package.get_by_id(typeid)
+        if restype == None:
+            restype = ResIdObject(typeid, typename)
+            package.add(restype)
         end = offset + size
+        indexoff = offset + hsize
         for i in xrange(0, entryCount):
-            index = entryindices[i]
-            if index == NO_ENTRY:
+            (index,) = unpack('<I', data[indexoff:indexoff+4])
+            if i == entryCount - 1:
+                entryend = end
+            else:
+                (entryend,)  = unpack('<I', data[indexoff+4:indexoff+8])
+                entryend += offset + entriesStart
+            entryend = min(end, entryend)
+            indexoff += 4
+            if index == ResTableEntry.NO_ENTRY:
                 continue
             off = offset + entriesStart + index
-            if off + 16 > end:
-                error("ResTable_type entry #%d position to %d extends chunk size %d" % (entriesStart + index, size))
+            if off + 8 > entryend:
+                error("ResTable_type entry #%d position to %d extends boundary" % (i, entriesStart + index))
             (entrysize, flags, key) = unpack('<HHI', data[off:off+8])
-            # if debug:
-            #     print_debug("    ResTable_type entry #%d size=%d flags=0x%04x key=%d" % (i, entrysize, flags, key))
+            # typical value of entry size  is 16
+            if entrysize < 8:
+                error("ResTable_type entry #%d at offset %d too small size %d" % (i, off, entrysize))
+            if entrysize + off > entryend:
+                error("ResTable_type entry #%d at offset %d size %d extends boundary %d" % (i, off, entrysize, entryend))
+            if debug:
+                print_debug("    entry #%d size=%d flags=0x%04x key=%d" % (i, entrysize, flags, key))
             entryname = package.keyPool.get_string(key)
             if entryname == None:
                 error("can not get entry #%d name with index %d" % (i, key))
-            typeIndex = typeId - 1
-            entryname = "%s/%s" % (package.typePool.get_string(typeIndex), entryname)
-            resid = self._make_res_id(package.id, typeIndex, i)
-            package.entries[resid] = entryname
-            # print_debug("  resource entry 0x%08x %s" % (resid, entryname))
+            resentry = restype.get_by_id(i)
+            if resentry == None:
+                resentry = ResTableEntry(i, entryname)
+                if not restype.add(resentry):
+                    continue
+            resid = self.make_res_id(package.id, typeindex, i)
+            if debug:
+                print_debug("    resource entry 0x%08x %s/%s" % (resid, restype.name, resentry.name))
 
-    def _make_res_id(self, pkgId, typeIndex, entryIndex):
-        return ((0xff000000 & (pkgId << 24)) |
-                (0x00ff0000 & ((typeIndex + 1) << 16)) |
-                (0x0000ffff & (entryIndex)) )
+            # for attr type, parse more info (eg. flags or enum valus)
+            if restype.name == 'attr' and flags & ResTableEntry.FLAG_COMPLEX:
+                off += entrysize
 
-    def _parse_package(self, offset=0):
+                self.parse_attr_extra(package, resentry, off, entryend)
+
+    def parse_attr_extra(self, package, resentry, off, entryend):
+        data = self.data
+        debug = self.debug
+        # iterate ResTable_map array
+        first = True
+        extra_items = {}
+        while off + 12 <= entryend:
+            (name_ref, map_size) = unpack('<IH', data[off:off+6])
+            (map_type, map_data) = unpack('<BI', data[off+7:off+12])
+            if map_size < 8:
+                error("ResTable_map [%d] has invalid size %d" % (off, map_size))
+            # we are processing an array, all item should has same size (4 + 8 = 12 bytes so far)
+            if map_size > 8:
+                print_debug("ResTable_map [%d] has unexpected size %d" % (off, map_size))
+            if debug:
+                print_debug("      ResTable_map [%d] 0x%08x 0x%02x 0x%02x 0x%08x"
+                            % (off, name_ref, map_size, map_type, map_data))
+            
+            off += 12
+            # first map entry must be attribute type code
+            if first:
+                if name_ref != 0x01000000 or map_type != TYPE_INT_DEC:
+                    return
+                # just process enum and flags
+                resentry.typecode = map_data
+                # typecode can be 'or' of several type, such as TYPE_DIMENSION | TYPE_ENUM
+                if (map_data & (ResTableEntry.TYPE_ENUM | ResTableEntry.TYPE_FLAGS)) == 0:
+                    return
+                first = False
+                continue
+            # skip internal spec (eg. min or max value for integral attribute) of attr
+            if name_ref <= 0x01000009:
+                continue
+            # now, remains only flags and enum item
+            if (resentry.typecode & ResTableEntry.TYPE_ENUM) and map_type != TYPE_INT_DEC:
+                continue
+            if (resentry.typecode & ResTableEntry.TYPE_FLAGS) and map_type != TYPE_INT_HEX:
+                continue
+            # name_ref should refer to an id resource entry, whose name is flag or enum name
+            # map_data if flag or enum value
+            # defer name dereference as 'id' may not parsed
+            extra_items[map_data] = name_ref
+        resentry.extra = extra_items
+
+    def parse_package(self, offset=0):
         data = self.data
         debug = self.debug
         (htype, hsize, size, pkgid) = unpack('<HHII', data[offset:offset+12])
@@ -752,16 +979,14 @@ class ResourceParser(AXMLParser):
         (typeStrings, lastPublicType, keyStrings, lastPublicKey) = unpack('<IIII', data[off:off+16])
         if debug:
             print_debug("package: %d %s typePool=%d keyPool=%d" % (pkgid, pkgname, typeStrings, keyStrings))
-        package = ResPackage()
-        package.id = pkgid
-        package.name = pkgname
+        package = ResPackage(pkgid, pkgname)
         off = offset + hsize
         while off + 8 <= len(data):
             (htype, hsize, size) = self.parse_header(off, True)
             if htype == RES_TABLE_TYPE_SPEC_TYPE:
-                self._parse_table_spectype(off)
+                self.parse_table_spectype(off)
             elif htype == RES_TABLE_TYPE_TYPE:
-                self._parse_table_typetype(package, off)
+                self.parse_table_typetype(package, off)
             elif htype == RES_STRING_POOL_TYPE:
                 if off == offset + typeStrings:
                     package.typePool = self.parse_stringpool(off)
@@ -778,7 +1003,7 @@ class ResourceParser(AXMLParser):
         offset = 0
         data = self.data
         debug = self.debug
-        entry_map = {}
+        res_table = ResObject()
         if len(data) < 12:
             error("invalid resource table file ( size < 12)")
         (htype, hsize, size) = self.parse_header(offset, True)
@@ -794,10 +1019,10 @@ class ResourceParser(AXMLParser):
                 else:
                     self.strpool = self.parse_stringpool(offset)
             elif htype == RES_TABLE_PACKAGE_TYPE:
-                package = self._parse_package(offset)
-                entry_map.update(package.entries)
+                package = self.parse_package(offset)
+                res_table.add(package)
             else:
                 print_debug("Skipping unknown chunk: (0x04x, %d, %d) offset %d" % (htype, hsize, size, offset))
             offset += size
 
-        return entry_map
+        return res_table
