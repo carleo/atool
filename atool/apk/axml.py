@@ -434,13 +434,13 @@ class AXMLParser:
                         return str(v)
                 break
             else:
-                if data == 0:
-                    break
                 # more than one flag may set same bit
                 val = 0
                 include = []
                 for (k, v) in entry.extra.items():
-                    if (k & data) == k:
+                    if data == k:
+                        return v
+                    if (k & data) == k and data != 0:
                         val = val | k
                         include.append(k)
                 if val != data:
@@ -977,8 +977,10 @@ class ResourceParser(AXMLParser):
             # now, remains only flags and enum item
             if (resentry.typecode & ResTableEntry.TYPE_ENUM) and map_type != TYPE_INT_DEC:
                 continue
-            if (resentry.typecode & ResTableEntry.TYPE_FLAGS) and map_type != TYPE_INT_HEX:
-                continue
+            # old sdk may use TYPE_INT_DEC for TYPE_FLAGS
+            # if (resentry.typecode & ResTableEntry.TYPE_FLAGS) and map_type != TYPE_INT_HEX:
+            #     continue
+
             # name_ref should refer to an id resource entry, whose name is flag or enum name
             # map_data if flag or enum value
             # defer name dereference as 'id' may not parsed

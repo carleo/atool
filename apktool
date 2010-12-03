@@ -105,44 +105,36 @@ def dump_sysres(cmd, argv):
         sys.exit(1)
 
 def dump_xml(cmd, argv):
-    usage = '''<binary-xml> <sys_resources.arsc> <resources.arsc>'''
-    if len(argv) != 3:
+    usage = '''<binary-xml> [<resources.arsc>]'''
+    if len(argv) < 1 or len(argv) > 2:
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
         sys.exit(1)
     restable = ResObject()
-    try:
-        infile = open(argv[1], "rb")
-        indata = infile.read()
-        infile.close()
-        outfile = sys.stdout
-        parser = ResourceParser(indata)
-        m = parser.parse_resources()
-        restable.update(m)
-    except Exception as e:
-        print >> sys.stderr, "failed to process system resource:", e
+    androidjar = get_android_resource()
+    if androidjar:
+        res = get_archived_resource(androidjar)
+        if res:
+            restable.update(res)
 
-    try:
-        infile = open(argv[2], "rb")
-        indata = infile.read()
-        infile.close()
-        outfile = sys.stdout
-        parser = ResourceParser(indata)
-        m = parser.parse_resources()
-        restable.update(m)
-    except Exception as e:
-        print >> sys.stderr, "failed to process resource: ", e
+    if len(argv) > 1:
+        try:
+            infile = open(argv[1], "rb")
+            indata = infile.read()
+            infile.close()
+            outfile = sys.stdout
+            parser = ResourceParser(indata)
+            m = parser.parse_resources()
+            restable.update(m)
+        except Exception as e:
+            print >> sys.stderr, "failed to process resource: ", e
 
-    try:
-        infile = open(argv[0], "rb")
-        indata = infile.read()
-        infile.close()
-        parser = AXMLParser(indata)
-        parser.set_restable(restable)
-        (xml, ns) = parser.parsexml()
-        xml.dump(sys.stdout, ns)
-    except Exception as e:
-        print >> sys.stderr, e
-        sys.exit(1)
+    infile = open(argv[0], "rb")
+    indata = infile.read()
+    infile.close()
+    parser = AXMLParser(indata)
+    parser.set_restable(restable)
+    (xml, ns) = parser.parsexml()
+    xml.dump(sys.stdout, ns)
 
 def get_archived_resource(archive):
     import zipfile
@@ -166,8 +158,8 @@ def dump_apk(cmd, argv):
         print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
         sys.exit(1)
     apkfile = argv[0]
-    androidjar = get_android_resource()
     restable = ResObject()
+    androidjar = get_android_resource()
     if androidjar:
         res = get_archived_resource(androidjar)
         if res:
