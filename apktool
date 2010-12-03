@@ -3,6 +3,8 @@
 
 import os
 import sys
+import glob
+import zipfile
 
 # fix sys path to include our lib
 DIR_PATH = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
@@ -14,7 +16,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpxml', 'dumpres', 'dumpsysres']
+COMMANDS = ['dumpapk', 'dumpxml', 'dumpres', 'dumpsysres']
 
 usage = '''Usage: apktool <command> [options] [args]
 Type 'apktool help <command>' for help of specific command.
@@ -24,6 +26,70 @@ Available commands:
    dumpres       dump resource
    dumpsysres    dump resource id from android.jar
 '''
+
+def get_cmd_path(cmd):
+    '''Get absolute path of given command with PATH environment'''
+    if cmd == "":
+        return None
+    path = os.environ.get("PATH")
+    if path == None:
+        path = os.environ.get("path")
+    if path == None:
+        return None
+    for p in path.split(':'):
+        f = p + "/" + cmd
+        if os.access(f, os.X_OK):
+            return f
+    return None
+
+def cmp_version(v1, v2):
+    if v1 == v2:
+        return 0
+    a1 = v1.split(".")
+    a2 = v2.split(".")
+    while a1 or a2:
+        if not a1:
+            return -1
+        if not a2:
+            return 1
+        c1 = a1.pop(0)
+        c2 = a2.pop(0)
+        if c1.isdigit() and c2.isdigit():
+            return cmp(int(c1), int(c2))
+        else:
+            return cmp(c1, c2)
+
+def get_android_jar(sdk_dir):
+    '''Get android system resource file (android.jar)'''
+    if not (os.path.isdir(sdk_dir + "/platforms")
+            and os.path.isfile(sdk_dir + "/tools/android")):
+        return None
+    prefix = sdk_dir + "/platforms/android-"
+    i = len(prefix)
+    platforms = glob.glob(prefix + "*")
+    if not platforms:
+        return None
+    vs = [item[i:] for item in platforms]
+    vs.sort(cmp=cmp_version)
+    jar = prefix + vs[-1] + "/android.jar"
+    if os.path.isfile(jar):
+        return jar
+    else:
+        return None
+
+def get_android_resource():
+    android = get_cmd_path("android")
+    if android:
+        android = os.path.realpath(android)
+    jar = None
+    if android:
+        sdk_dir = os.path.dirname(os.path.dirname(android))
+        jar = get_android_jar(sdk_dir)
+    if jar == None:
+        sdk_dir = os.environ.get("ANDROID_HOME")
+        if sdk_dir:
+            jar = get_android_jar(sdk_dir)
+    return jar
 
 def dump_sysres(cmd, argv):
     usage = '''<android-jar>'''
@@ -49,7 +115,7 @@ def dump_xml(cmd, argv):
         indata = infile.read()
         infile.close()
         outfile = sys.stdout
-        parser = ResourceParser(indata, outfile)
+        parser = ResourceParser(indata)
         m = parser.parse_resources()
         restable.update(m)
     except Exception as e:
@@ -60,7 +126,7 @@ def dump_xml(cmd, argv):
         indata = infile.read()
         infile.close()
         outfile = sys.stdout
-        parser = ResourceParser(indata, outfile)
+        parser = ResourceParser(indata)
         m = parser.parse_resources()
         restable.update(m)
     except Exception as e:
@@ -70,13 +136,71 @@ def dump_xml(cmd, argv):
         infile = open(argv[0], "rb")
         indata = infile.read()
         infile.close()
-        outfile = sys.stdout
-        parser = AXMLParser(indata, outfile)
+        parser = AXMLParser(indata)
         parser.set_restable(restable)
-        parser.parsexml()
+        (xml, ns) = parser.parsexml()
+        xml.dump(sys.stdout, ns)
     except Exception as e:
         print >> sys.stderr, e
         sys.exit(1)
+
+def get_archived_resource(archive):
+    import zipfile
+    zfile = None
+    try:
+        zfile = zipfile.ZipFile(archive, "r")
+        data = zfile.read("resources.arsc")
+        zfile.close()
+        zfile = None
+        parser = ResourceParser(data)
+        return parser.parse_resources()
+    except Exception as e:
+        if zfile:
+            zfile.close()
+        print >> sys.stderr, e
+    return None
+
+def dump_apk(cmd, argv):
+    usage = '''<file.apk>'''
+    if len(argv) != 1:
+        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
+        sys.exit(1)
+    apkfile = argv[0]
+    androidjar = get_android_resource()
+    restable = ResObject()
+    if androidjar:
+        res = get_archived_resource(androidjar)
+        if res:
+            restable.update(res)
+    infile = open(apkfile, "rb")
+    indata = infile.read(4)
+    infile.close()
+    if len(indata) < 4 or indata[0:4] != "\x50\x4b\x03\x04":
+        print >> sys.stderr, "not a apk file: %s" % (apkfile)
+        sys.exit(1)
+    res = get_archived_resource(apkfile)
+    if res:
+        restable.update(res)
+    zfile = zipfile.ZipFile(apkfile, "r")
+    zfile.getinfo("resources.arsc")
+    flist = zfile.namelist()
+    for fname in flist:
+        if not fname.endswith(".xml"):
+            continue
+        data = zfile.read(fname)
+        fname = fname.lstrip("/")
+        print "processing", fname
+        parser = AXMLParser(data)
+        parser.set_restable(restable)
+        (xml, ns) = parser.parsexml()
+        dirname = os.path.dirname(fname)
+        if dirname and not os.path.exists(dirname):
+            os.makedirs(dirname, 0755)
+        outfile = open(fname, "wb")
+        xml.dump(outfile, ns)
+        outfile.close()
+    zfile.close()
+
 
 def dump_res(cmd, argv):
     usage = '''<resources.asrc>'''
@@ -87,8 +211,9 @@ def dump_res(cmd, argv):
     indata = infile.read()
     infile.close()
     outfile = sys.stdout
-    parser = ResourceParser(indata, outfile, False)
+    parser = ResourceParser(indata, False)
     entries = parser.parse_resources()
+    print get_android_resource()
     # for k in sorted(entries.keys()):
     #     print "0x%08x %s" % (k, entries[k])
 
@@ -111,3 +236,6 @@ elif command == 'dumpsysres':
     dump_sysres(command, argv)
 elif command == 'dumpres':
     dump_res(command, argv)
+elif command == 'dumpapk':
+    dump_apk(command, argv)
+

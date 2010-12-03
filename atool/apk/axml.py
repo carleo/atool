@@ -313,28 +313,30 @@ class XMLNode:
     def addAttr(self, attr):
         self.attributes.append(attr)
 
-    def dump(self, depth=0, ns=None, indent="    "):
+    def dump(self, outfile=sys.stdout, ns=None, indent="    ", depth=0):
+        if depth == 0:
+            outfile.write('<?xml version="1.0" encoding="utf-8"?>\n')
         prefix = indent * depth
         if self.isText:
-            sys.stdout.write("%s%s\n" % (prefix, self.name))
+            outfile.write("%s%s\n" % (prefix, self.name))
             return
-        sys.stdout.write('%s<%s' % (prefix, self.name))
+        outfile.write('%s<%s' % (prefix, self.name))
         if ns:
-            sys.stdout.write(' xmlns:%s="%s"' % (ns[0], ns[1]))
+            outfile.write(' xmlns:%s="%s"' % (ns[0], ns[1]))
         # on same line for sole attribute
         if ns == None and len(self.attributes) == 1:
             attr = self.attributes[0]
-            sys.stdout.write(' %s="%s"' % (attr.name, attr.value))
+            outfile.write(' %s="%s"' % (attr.name, attr.value))
         else:
             for attr in self.attributes:
-                sys.stdout.write('\n%s%s%s="%s"' % (prefix, indent, attr.name, attr.value))
+                outfile.write('\n%s%s%s="%s"' % (prefix, indent, attr.name, attr.value))
         if self.children:
-            sys.stdout.write('>\n')
+            outfile.write('>\n')
             for node in self.children:
-                node.dump(depth+1)
-            sys.stdout.write('%s</%s>\n' % (prefix, self.name))
+                node.dump(outfile, None, indent, depth+1)
+            outfile.write('%s</%s>\n' % (prefix, self.name))
         else:
-            sys.stdout.write(' />\n')
+            outfile.write(' />\n')
 
 
 def error(msg):
@@ -359,9 +361,8 @@ def print_float(value):
     return strval
     
 class AXMLParser:
-    def __init__(self, data, outfile, debug=False):
+    def __init__(self, data, debug=False):
         self.data = data
-        self.outfile = outfile
         self.debug = debug
 
         self.restable = ResObject()
@@ -508,6 +509,30 @@ class AXMLParser:
             return "android:%s/%s" % (typename, entryname)
         else:
             return "%s/%s" % (typename, entryname)
+
+    def get_color_str(self, color, color_type):
+        if color_type == TYPE_INT_COLOR_ARGB8:
+            # '#aarrggbb'
+            return "#%08x" % (color)
+        elif color_type == TYPE_INT_COLOR_RGB8:
+            # '#rrggbb'
+            color = color & 0x00ffffff
+            return "#%06x" % (color)
+        elif color_type == TYPE_INT_COLOR_ARGB4:
+            # '#argb'
+            c = color & 0x000f
+            c = (color >> 4) & 0x00f0 | c
+            c = (color >> 8) & 0x0f00 | c
+            c = (color >> 12) & 0xf000 | c
+            return "#04x" % (c)
+        elif color_type == TYPE_INT_COLOR_RGB4:
+            # '#rgb'
+            c = color & 0x000f
+            c = (color >> 4) & 0x00f0 | c
+            c = (color >> 8) & 0x0f00 | c
+            return "#03x" % (c)
+        else:
+            return "(color)0x08x" % (color)
 
     def decode_complex(self, complexvalue, isfraction):
         value = ((complexvalue & (COMPLEX_MANTISSA_MASK << COMPLEX_MANTISSA_SHIFT))
@@ -742,8 +767,8 @@ class AXMLParser:
                 value = self.get_intattr_valuestr(ns, name, a_data, a_type)
             elif a_type == TYPE_INT_BOOLEAN:
                 value = a_data == 0 and "false" or "true"
-            elif a_type == TYPE_INT_COLOR_ARGB8:
-                value = "#%08x" % (a_data)
+            elif a_type >= TYPE_FIRST_COLOR_INT and a_type <= TYPE_LAST_COLOR_INT:
+                value = self.get_color_str(a_data, a_type)
             else:
                 value = "(type 0x%x)0x%x" % (a_type, a_data)
             attr = XMLAttribute(fullname, value)
@@ -809,15 +834,14 @@ class AXMLParser:
         if len(self.curnode.children) > 1:
             error("multiple element at toplevel")
         root = self.curnode.children[0]
-        print '<?xml version="1.0" encoding="utf-8"?>'
         if self.savedns:
-            root.dump(0, self.savedns[-1])
+            return (root, self.savedns[-1])
         else:
-            root.dump(0)
+            return (root, None)
 
 class ResourceParser(AXMLParser):
-    def __init__(self, data, outfile, debug=False):
-        AXMLParser.__init__(self, data, outfile, debug)
+    def __init__(self, data, debug=False):
+        AXMLParser.__init__(self, data, debug)
 
     def parse_table_spectype(self, offset=0):
         data = self.data
