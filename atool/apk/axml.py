@@ -510,6 +510,20 @@ class AXMLParser:
         else:
             return "%s/%s" % (typename, entryname)
 
+    def get_attr_attr_value(self, resid, name, rawvalue):
+        refer = self.dereference_resource(resid)
+        if refer:
+            (pkgname, typename, entryname) = refer
+            if name == "style" and typename == "attr":
+                if pkgname == "android":
+                    return "@android:style/%s" % (entryname)
+                else:
+                    return "@style/%s" % (entryname)
+        if rawvalue == None:
+            return "?0x%08x" % (resid)
+        else:
+            return rawvalue
+
     def get_color_str(self, color, color_type):
         if color_type == TYPE_INT_COLOR_ARGB8:
             # '#aarrggbb'
@@ -750,7 +764,7 @@ class AXMLParser:
                 else:
                     value = "@%s" % (value)
             elif a_type == TYPE_ATTRIBUTE:
-                value= "?0x%x" % (a_data)
+                value = self.get_attr_attr_value(a_data, name, self.strpool.get_string(valueid))
             elif a_type == TYPE_STRING:
                 value = self.strpool.get_string(valueid)
                 if value == None:
