@@ -538,13 +538,13 @@ class AXMLParser:
             c = (color >> 4) & 0x00f0 | c
             c = (color >> 8) & 0x0f00 | c
             c = (color >> 12) & 0xf000 | c
-            return "#04x" % (c)
+            return "#%04x" % (c)
         elif color_type == TYPE_INT_COLOR_RGB4:
             # '#rgb'
             c = color & 0x000f
             c = (color >> 4) & 0x00f0 | c
             c = (color >> 8) & 0x0f00 | c
-            return "#03x" % (c)
+            return "#%03x" % (c)
         else:
             return "(color)0x08x" % (color)
 
