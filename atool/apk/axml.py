@@ -514,11 +514,11 @@ class AXMLParser:
         refer = self.dereference_resource(resid)
         if refer:
             (pkgname, typename, entryname) = refer
-            if name == "style" and typename == "attr":
+            if typename == "attr":
                 if pkgname == "android":
-                    return "@android:style/%s" % (entryname)
+                    return "?android:attr/%s" % (entryname)
                 else:
-                    return "@style/%s" % (entryname)
+                    return "?attr/%s" % (entryname)
         if rawvalue == None:
             return "?0x%08x" % (resid)
         else:

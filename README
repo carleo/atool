@@ -1,1 +1,13 @@
 Tools for android development.
+
+'apktool' is the sole available tool so far. It can parse android 
+compiled xml files and resource table file (resources.arsc), then 
+dump plain xml files almost the same as the originals. System
+resources will be auto loaded from android sdk directory if it can
+be resolved. Usage is as follows:
+
+# dump one xml
+$ apktool dumpxml <binary-xml> [resources.arsc]
+
+# dump all xml in apk
+$ apktool dumpapk <file-apk>

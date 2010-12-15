@@ -16,15 +16,14 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml', 'dumpres', 'dumpsysres']
+COMMANDS = ['dumpapk', 'dumpxml']
 
-usage = '''Usage: apktool <command> [options] [args]
-Type 'apktool help <command>' for help of specific command.
+usage = '''usage: apktool <command> [args]
+Type 'apktool <command> -h' for help of specific command.
 
 Available commands:
    dumpxml       dump android binary xml
-   dumpres       dump resource
-   dumpsysres    dump resource id from android.jar
+   dumpapk       dump all xml files in given apk file to current directory
 '''
 
 def get_cmd_path(cmd):
@@ -91,23 +90,27 @@ def get_android_resource():
             jar = get_android_jar(sdk_dir)
     return jar
 
-def dump_sysres(cmd, argv):
-    usage = '''<android-jar>'''
-    if len(argv) != 1:
-        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
-        sys.exit(1)
-    try:
-        id_list = sysresource.process_jar(argv[0])
-        for rid in sorted(id_list.keys()):
-            print "%s = 0x%08x" % (id_list[rid], rid)
-    except Exception as e:
-        print >> sys.stderr, e
-        sys.exit(1)
-
 def dump_xml(cmd, argv):
-    usage = '''<binary-xml> [<resources.arsc>]'''
+    usage = 'usage: %s %s <binary-xml> [<resources.arsc>]' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump given xml file to stdout.
+
+  If resources file (typically resources.arsc extracted from the
+  same apk file) not specified, most xml attributes will be dumped
+  as numeric value.
+
+  System resources will be auto loaded (android sdk directory is
+  resolved by path of command 'android', then try environment
+  variable 'ANDROID_HOME'). If system resources can not be found,
+  most xml attributes will be dumped as numeric value.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+
     if len(argv) < 1 or len(argv) > 2:
-        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
+        print >> sys.stderr, usage
         sys.exit(1)
     restable = ResObject()
     androidjar = get_android_resource()
@@ -153,9 +156,22 @@ def get_archived_resource(archive):
     return None
 
 def dump_apk(cmd, argv):
-    usage = '''<file.apk>'''
+    usage = 'usage: %s %s <file.apk>' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump all xml files in given apk file into current directory.
+
+  System resources will be auto loaded (android sdk directory is
+  resolved by path of command 'android', then try environment
+  variable 'ANDROID_HOME'). If system resources can not be found,
+  most xml attributes will be dumped as numeric value.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+
     if len(argv) != 1:
-        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
+        print >> sys.stderr, usage
         sys.exit(1)
     apkfile = argv[0]
     restable = ResObject()
@@ -194,23 +210,8 @@ def dump_apk(cmd, argv):
     zfile.close()
 
 
-def dump_res(cmd, argv):
-    usage = '''<resources.asrc>'''
-    if len(argv) != 1:
-        print >> sys.stderr, "%s %s %s" % (TOOL_NAME, cmd, usage)
-        sys.exit(1)
-    infile = open(argv[0], "rb")
-    indata = infile.read()
-    infile.close()
-    outfile = sys.stdout
-    parser = ResourceParser(indata, False)
-    entries = parser.parse_resources()
-    print get_android_resource()
-    # for k in sorted(entries.keys()):
-    #     print "0x%08x %s" % (k, entries[k])
-
 if len(sys.argv) < 2:
-    print >> sys.stderr, "no command specified, type 'apktoo help' for usage."
+    print >> sys.stderr, "no command specified, type 'apktool help' for usage."
     sys.exit(1)
 
 command = sys.argv[1]
@@ -224,10 +225,5 @@ if command not in COMMANDS:
     print >> sys.stderr, "apktool: unknown command '%s'. See 'apktool help'." % (command)
 elif command == 'dumpxml':
     dump_xml(command, argv)
-elif command == 'dumpsysres':
-    dump_sysres(command, argv)
-elif command == 'dumpres':
-    dump_res(command, argv)
 elif command == 'dumpapk':
     dump_apk(command, argv)
-
