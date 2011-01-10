@@ -177,6 +177,7 @@ def dump_apk(cmd, argv):
     restable = ResObject()
     androidjar = get_android_resource()
     if androidjar:
+        # print >> sys.stderr, androidjar
         res = get_archived_resource(androidjar)
         if res:
             restable.update(res)
@@ -198,15 +199,18 @@ def dump_apk(cmd, argv):
         data = zfile.read(fname)
         fname = fname.lstrip("/")
         print "processing", fname
-        parser = AXMLParser(data)
-        parser.set_restable(restable)
-        (xml, ns) = parser.parsexml()
-        dirname = os.path.dirname(fname)
-        if dirname and not os.path.exists(dirname):
-            os.makedirs(dirname, 0755)
-        outfile = open(fname, "wb")
-        xml.dump(outfile, ns)
-        outfile.close()
+        try:
+            parser = AXMLParser(data)
+            parser.set_restable(restable)
+            (xml, ns) = parser.parsexml()
+            dirname = os.path.dirname(fname)
+            if dirname and not os.path.exists(dirname):
+                os.makedirs(dirname, 0755)
+            outfile = open(fname, "wb")
+            xml.dump(outfile, ns)
+            outfile.close()
+        except Exception as e:
+            print >> sys.stderr, "  Error:", e
     zfile.close()
 
 

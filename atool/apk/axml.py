@@ -340,7 +340,7 @@ class XMLNode:
 
 
 def error(msg):
-    print >> sys.stderr, "Error: ", msg
+    # print >> sys.stderr, "Error: ", msg
     raise Exception(msg)
 
 def print_debug(msg):
