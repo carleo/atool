@@ -569,6 +569,9 @@ class AXMLParser:
             else:
                 strval += " (unknown unit)"
         else:
+            # ??%, strip leading '0.'
+            if strval.startswith("0.") and len(strval) > 2:
+                strval = strval[2:]
             if unit == COMPLEX_UNIT_FRACTION:
                 strval += "%"
             elif unit == COMPLEX_UNIT_FRACTION_PARENT:

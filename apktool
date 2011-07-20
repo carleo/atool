@@ -4,7 +4,8 @@
 import os
 import sys
 import glob
-import zipfile
+# import zipfile
+from atool import zipfile
 
 # fix sys path to include our lib
 DIR_PATH = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
@@ -16,7 +17,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml']
+COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve']
 
 usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
@@ -24,6 +25,8 @@ Type 'apktool <command> -h' for help of specific command.
 Available commands:
    dumpxml       dump android binary xml
    dumpapk       dump all xml files in given apk file to current directory
+   cat           dump specified xml from given apk file
+   resolve       resolve resource name of given numeric id
 '''
 
 def get_cmd_path(cmd):
@@ -91,7 +94,7 @@ def get_android_resource():
     return jar
 
 def dump_xml(cmd, argv):
-    usage = 'usage: %s %s <binary-xml> [<resources.arsc>]' % (TOOL_NAME, cmd)
+    usage = 'usage: %s %s <binary-xml> [<resources.arsc-or-.apk>]' % (TOOL_NAME, cmd)
     detail = '''
   Dump given xml file to stdout.
 
@@ -124,10 +127,15 @@ def dump_xml(cmd, argv):
             infile = open(argv[1], "rb")
             indata = infile.read()
             infile.close()
-            outfile = sys.stdout
-            parser = ResourceParser(indata)
-            m = parser.parse_resources()
-            restable.update(m)
+            if len(indata) > 4 and indata[0:4] == '\x50\x4b\x03\x04':
+                res = get_archived_resource(argv[1])
+                if res:
+                    restable.update(res)
+            else:
+                parser = ResourceParser(indata)
+                res = parser.parse_resources()
+                if res:
+                    restable.update(res)
         except Exception as e:
             print >> sys.stderr, "failed to process resource: ", e
 
@@ -140,10 +148,13 @@ def dump_xml(cmd, argv):
     xml.dump(sys.stdout, ns)
 
 def get_archived_resource(archive):
-    import zipfile
     zfile = None
     try:
-        zfile = zipfile.ZipFile(archive, "r")
+        try:
+            zfile = zipfile.ZipFile(archive, "r")
+        except Exception as e1:
+            print >> sys.stderr, "failed to open zip archive:", archive, e1
+            return None
         data = zfile.read("resources.arsc")
         zfile.close()
         zfile = None
@@ -152,7 +163,7 @@ def get_archived_resource(archive):
     except Exception as e:
         if zfile:
             zfile.close()
-        print >> sys.stderr, e
+        print >> sys.stderr, "failed to process resources.arsc:", e
     return None
 
 def dump_apk(cmd, argv):
@@ -214,20 +225,124 @@ def dump_apk(cmd, argv):
     zfile.close()
 
 
-if len(sys.argv) < 2:
-    print >> sys.stderr, "no command specified, type 'apktool help' for usage."
-    sys.exit(1)
+def cat_xml(cmd, argv):
+    usage = 'usage: %s %s <file.apk> <name.xml>' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump specified xml file from given apk file.
 
-command = sys.argv[1]
-argv = sys.argv[2:]
+  System resources will be auto loaded (android sdk directory is
+  resolved by path of command 'android', then try environment
+  variable 'ANDROID_HOME'). If system resources can not be found,
+  most xml attributes will be dumped as numeric value.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
 
-if command in ['-h', '-help', '--help', 'help']:
-    print usage,
-    sys.exit(0)
+    if len(argv) != 2:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    apkfile = argv[0]
+    zfile = zipfile.ZipFile(apkfile, "r")
+    xmlfile = argv[1]
+    data = zfile.read(xmlfile)
+    zfile.close()
+    if not data:
+        sys.exit(0)
+    restable = ResObject()
+    androidjar = get_android_resource()
+    if androidjar:
+        res = get_archived_resource(androidjar)
+        if res:
+            restable.update(res)
+    res = get_archived_resource(apkfile)
+    if res:
+        restable.update(res)
+    parser = AXMLParser(data)
+    parser.set_restable(restable)
+    (xml, ns) = parser.parsexml()
+    xml.dump(sys.stdout, ns)
 
-if command not in COMMANDS:
-    print >> sys.stderr, "apktool: unknown command '%s'. See 'apktool help'." % (command)
-elif command == 'dumpxml':
-    dump_xml(command, argv)
-elif command == 'dumpapk':
-    dump_apk(command, argv)
+def resolve_name(cmd, argv):
+    usage = 'usage: %s %s <numeric_id> [<apk_or_arsc>]' % (TOOL_NAME, cmd)
+    detail = '''
+  Resolve resource name of given id.
+
+  System resources will be auto loaded, optional apk file or resource file
+  will also be searched.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+
+    if len(argv) < 1 or len(argv) > 2:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    idstr = argv[0]
+    radix = 10
+    if idstr.startswith("0x") or idstr.startswith("0X"):
+        radix = 16
+    rid = 0
+    try:
+        rid = int(idstr, radix)
+    except:
+        print >> sys.stderr, "invalid id, not a number: ", idstr
+        sys.exit(1)
+    if rid <= 0 or rid >= 0xffffffff:
+        print >> sys.stderr, "invalid id: ", idstr
+        sys.exit(1)
+
+    restable = ResObject()
+    androidjar = get_android_resource()
+    if androidjar:
+        res = get_archived_resource(androidjar)
+        if res:
+            restable.update(res)
+    if len(argv) > 1:
+        try:
+            infile = open(argv[1], "rb")
+            indata = infile.read()
+            infile.close()
+            if len(indata) > 4 and indata[0:4] == "\x50\x4b\x03\x04":
+                m = get_archived_resource(argv[1])
+            else:
+                parser = ResourceParser(indata)
+                m = parser.parse_resources()
+            restable.update(m)
+        except Exception as e:
+            print >> sys.stderr, "failed to process resource: ", e
+
+    parser = ResourceParser("")
+    parser.set_restable(restable)
+    result = parser.dereference_resource(rid)
+    if result == None:
+        print >> sys.stderr, "can not resolve given id: 0x%08x" % (rid)
+        sys.exit(1)
+    print "0x%08x %s %s %s" % (rid, result[0], result[1], result[2])
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print >> sys.stderr, "no command specified, type 'apktool help' for usage."
+        sys.exit(1)
+
+    command = sys.argv[1]
+    argv = sys.argv[2:]
+
+    if command in ['-h', '-help', '--help', 'help']:
+        print usage,
+        sys.exit(0)
+
+    if command not in COMMANDS:
+        print >> sys.stderr, "apktool: unknown command '%s'. See 'apktool help'." % (command)
+    elif command == 'dumpxml':
+        dump_xml(command, argv)
+    elif command == 'dumpapk':
+        dump_apk(command, argv)
+    elif command == 'resolve':
+        resolve_name(command, argv)
+    elif command == 'cat':
+        cat_xml(command, argv)
+
