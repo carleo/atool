@@ -207,6 +207,8 @@ def dump_apk(cmd, argv):
     for fname in flist:
         if not fname.endswith(".xml"):
             continue
+        if not (fname == 'AndroidManifest.xml' or fname.startswith("res/")):
+            continue
         data = zfile.read(fname)
         fname = fname.lstrip("/")
         print "processing", fname
