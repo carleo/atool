@@ -17,7 +17,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve']
+COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'catr']
 
 usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
@@ -26,6 +26,7 @@ Available commands:
    dumpxml       dump android binary xml
    dumpapk       dump all xml files in given apk file to current directory
    cat           dump specified xml from given apk file
+   catr          dump R.java
    resolve       resolve resource name of given numeric id
 '''
 
@@ -166,6 +167,63 @@ def get_archived_resource(archive):
         print >> sys.stderr, "failed to process resources.arsc:", e
     return None
 
+def make_res_id(pkgid, typeid, entryid):
+    return ((0xff000000 & (pkgid << 24)) |
+            (0x00ff0000 & ((typeid) << 16)) |
+            (0x0000ffff & (entryid)) )
+
+def dump_r(pkg, outfile=sys.stdout):
+    print >> outfile, "package %s\n" % (pkg.name)
+    print >> outfile, "public final class R {"
+    for tname in sorted(pkg.name_map.keys()):
+        t = pkg.name_map[tname]
+        print >> outfile, "    public static final class %s {" % (t.name)
+        for k in sorted(t.id_map.keys()):
+            e = t.id_map[k]
+            eid = make_res_id(pkg.id, t.id, e.id)
+            print >> outfile, "        public static final int %s = 0x%08x;  // %d" % (e.name, eid, eid)
+        print >> outfile, "    }\n"
+    print >> outfile, "}"
+
+def cat_r(cmd, argv):
+    usage = 'usage: %s %s <resources.arsc-or-.apk>' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump R.java to stdout.
+
+  resources file or apk file must specified.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+
+    if len(argv) != 1:
+        print >> sys.stderr, usage
+        sys.exit(1)
+
+    res = None
+    try:
+        infile = open(argv[0], "rb")
+        indata = infile.read()
+        infile.close()
+        if len(indata) > 4 and indata[0:4] == '\x50\x4b\x03\x04':
+            res = get_archived_resource(argv[1])
+        else:
+            parser = ResourceParser(indata)
+            res = parser.parse_resources()
+        if res == None or len(res.id_map) < 1:
+            print >> std.err, "no package in restable"
+            return
+        if len(res.id_map) != 1:
+            print >> std.err, "multiple package in restable"
+            return
+        ids = res.id_map.keys()
+        pkg = res.id_map[ids[0]]
+        dump_r(pkg)
+    except Exception as e:
+        print >> sys.stderr, "failed to process resource: ", e
+
+    
 def dump_apk(cmd, argv):
     usage = 'usage: %s %s <file.apk>' % (TOOL_NAME, cmd)
     detail = '''
@@ -347,4 +405,5 @@ if __name__ == '__main__':
         resolve_name(command, argv)
     elif command == 'cat':
         cat_xml(command, argv)
-
+    elif command == 'catr':
+        cat_r(command, argv)
