@@ -17,7 +17,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'catr']
+COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'resolve_string', 'catr']
 
 usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
@@ -286,7 +286,7 @@ def dump_apk(cmd, argv):
 
 
 def cat_xml(cmd, argv):
-    usage = 'usage: %s %s <file.apk> <name.xml>' % (TOOL_NAME, cmd)
+    usage = 'usage: %s %s <file.apk> [<name.xml>]' % (TOOL_NAME, cmd)
     detail = '''
   Dump specified xml file from given apk file, default to AndroidManifest.xml.
 
@@ -314,7 +314,8 @@ def cat_xml(cmd, argv):
     if not data:
         sys.exit(0)
     restable = ResObject()
-    androidjar = get_android_resource()
+    androidjar = None
+    #androidjar = get_android_resource()
     if androidjar:
         res = get_archived_resource(androidjar)
         if res:
@@ -385,6 +386,46 @@ def resolve_name(cmd, argv):
         sys.exit(1)
     print "0x%08x %s %s %s" % (rid, result[0], result[1], result[2])
 
+def resolve_string(cmd, argv):
+    usage = 'usage: %s %s <apk_or_arsc> <string_name>' % (TOOL_NAME, cmd)
+    detail = '''
+  Resolve value of given string name.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+    if len(argv) != 2:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    string_name = argv[1]
+    res_file = argv[0]
+    try:
+        infile = open(res_file, "rb")
+        indata = infile.read()
+        infile.close()
+        if len(indata) > 4 and indata[0:4] == "\x50\x4b\x03\x04":
+            zfile = None
+            indata = None
+            try:
+                zfile = zipfile.ZipFile(res_file, 'r')
+                indata = zfile.read('resources.arsc')
+                zfile.close()
+                zfile = None
+            except Exception as e1:
+                print >> sys.stderr, "failed to process resource: ", e1
+                return None
+        if indata:
+            parser = ResourceParser(indata)
+            restable = parser.parse_resources()
+            if not restable.name_map:
+                return None
+            package = restable.name_map.values()[0]
+            parser.set_restable(restable)
+            print parser.resolve_string(package.name, string_name)
+    except Exception as e:
+        print >> sys.stderr, "failed to process resource: ", e
+        return None
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -406,6 +447,8 @@ if __name__ == '__main__':
         dump_apk(command, argv)
     elif command == 'resolve':
         resolve_name(command, argv)
+    elif command == 'resolve_string':
+        resolve_string(command, argv)
     elif command == 'cat':
         cat_xml(command, argv)
     elif command == 'catr':

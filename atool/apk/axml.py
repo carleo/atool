@@ -271,6 +271,13 @@ class ResPackage(ResIdObject):
         self.keyPool = None
         ResIdObject.__init__(self, pkgid, name)
 
+class ResValue:
+    def __init__(self, size, res0, dataType, data):
+        self.size = size
+        self.res0 = res0
+        self.dataType = dataType
+        self.data = data
+
 class ResTableEntry:
     INDEX_ATTR = 0x00
 
@@ -282,9 +289,14 @@ class ResTableEntry:
     TYPE_ENUM = 1 << 16
     TYPE_FLAGS = 1 << 17
 
-    def __init__(self, eid, name):
+    def __init__(self, eid, name, key, flags, size):
         self.id = eid
         self.name = name
+        self.key = key
+        self.flags = flags
+        self.size = size
+        self.value = None
+
         self.typecode = 0
         # indicate resolve staus of extra
         #   None:  not resolved
@@ -499,6 +511,23 @@ class AXMLParser:
         if entry == None:
             return None
         return (package.name, restype.name, entry.name)
+
+    def resolve_string(self, pkg_name, res_name):
+        if self.restable == None:
+            return None
+        package = self.restable.get_by_name(pkg_name)
+        if package == None:
+            return None
+        strs = package.get_by_name('string')
+        if strs == None:
+            return None
+        entry = strs.get_by_name(res_name)
+        if entry == None:
+            return None
+        if entry.value and entry.value.dataType == TYPE_STRING:
+            return self.strpool.get_string(entry.value.data)
+        else:
+            return None
 
     def get_refer_name(self, resid):
         refer = self.dereference_resource(resid)
@@ -945,15 +974,23 @@ class ResourceParser(AXMLParser):
                 error("can not get entry #%d name with index %d" % (i, key))
             resentry = restype.get_by_id(i)
             if resentry == None:
-                resentry = ResTableEntry(i, entryname)
+                resentry = ResTableEntry(i, entryname, key, flags, entrysize)
                 if not restype.add(resentry):
                     continue
+            else:
+                # only keep entry in first config
+                continue
             resid = self.make_res_id(package.id, typeindex, i)
             if debug:
                 print_debug("    resource entry 0x%08x %s/%s" % (resid, restype.name, resentry.name))
 
-            # for attr type, parse more info (eg. flags or enum valus)
-            if restype.name == 'attr' and flags & ResTableEntry.FLAG_COMPLEX:
+            if flags & ResTableEntry.FLAG_COMPLEX == 0:
+                off += entrysize
+                (v_size, v_res0, v_type, v_data) = unpack('<HBBI', data[off:off+8])
+                resentry.value = ResValue(v_size, v_res0, v_type, v_data)
+                
+            elif restype.name == 'attr' and flags & ResTableEntry.FLAG_COMPLEX:
+                # for attr type, parse more info (eg. flags or enum valus)
                 off += entrysize
 
                 self.parse_attr_extra(package, resentry, off, entryend)
