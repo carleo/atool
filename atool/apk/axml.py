@@ -757,7 +757,7 @@ class AXMLParser:
                     return item[0] + ":"
             return ns + ":"
         return ""
-    
+
     def parse_starttag(self, offset):
         data = self.data
         debug = self.debug
@@ -1092,6 +1092,7 @@ class ResourceParser(AXMLParser):
             error("invalid resource file with header type 0x%04x (expect %#04x)" % (htype, RES_TABLE_TYPE))
         (pkg_count,) = unpack('<I', data[offset+8:offset+12])
         offset += hsize
+        pkg_list = []
         while offset < len(data):
             (htype, hsize, size) = self.parse_header(offset, True)
             if htype == RES_STRING_POOL_TYPE:
@@ -1101,9 +1102,14 @@ class ResourceParser(AXMLParser):
                     self.strpool = self.parse_stringpool(offset)
             elif htype == RES_TABLE_PACKAGE_TYPE:
                 package = self.parse_package(offset)
-                res_table.add(package)
+                pkg_list.append(package)
             else:
                 print_debug("Skipping unknown chunk: (0x04x, %d, %d) offset %d" % (htype, hsize, size, offset))
             offset += size
 
+        # some apk contains two package, one is 'android', drop it
+        drop_android = (len(pkg_list) > 1)
+        for pkg in pkg_list:
+            if not drop_android or pkg.name != 'android':
+                res_table.add(package)
         return res_table
