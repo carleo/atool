@@ -1061,7 +1061,8 @@ class ResourceParser(AXMLParser):
             print_debug("package: %d %s typePool=%d keyPool=%d" % (pkgid, pkgname, typeStrings, keyStrings))
         package = ResPackage(pkgid, pkgname)
         off = offset + hsize
-        while off + 8 <= len(data):
+        pkgend = offset + size
+        while off + 8 <= pkgend:
             (htype, hsize, size) = self.parse_header(off, True)
             if htype == RES_TABLE_TYPE_SPEC_TYPE:
                 self.parse_table_spectype(off)

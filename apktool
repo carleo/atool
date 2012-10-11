@@ -314,14 +314,22 @@ def cat_xml(cmd, argv):
     if not data:
         sys.exit(0)
     restable = ResObject()
-    androidjar = None
-    #androidjar = get_android_resource()
+    #androidjar = None
+    androidjar = get_android_resource()
     if androidjar:
         res = get_archived_resource(androidjar)
         if res:
             restable.update(res)
     res = get_archived_resource(apkfile)
+    # TODO:
+    # weico has two package: 'android' and 'com.weibo',
+    # update will replace system resource, check why?
     if res:
+        if restable.get_by_name('android'):
+            pkg = res.get_by_name('android')
+            if pkg:
+                del res.name_map['android']
+                del res.id_map[pkg.id]
         restable.update(res)
     parser = AXMLParser(data)
     parser.set_restable(restable)
