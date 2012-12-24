@@ -8,7 +8,7 @@ def error(msg):
     sys.exit(1)
 
 def debug(msg):
-    print >> sys.stderr, msg
+    print >> sys.stdout, msg
 
 def decode_uleb128(data, offset=0):
     '''decode leb128-encoded integer, return a tuple with value and lenth'''

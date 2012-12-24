@@ -23,11 +23,12 @@ usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
 
 Available commands:
-   dumpxml       dump android binary xml
-   dumpapk       dump all xml files in given apk file to current directory
-   cat           dump specified xml from given apk file
-   catr          dump R.java
-   resolve       resolve resource name of given numeric id
+   dumpxml         dump android binary xml
+   dumpapk         dump all xml files in given apk file to current directory
+   cat             dump specified xml from given apk file
+   catr            dump R.java
+   resolve         resolve resource name of given numeric id
+   resolve_string  resolve value of given string id
 '''
 
 def get_cmd_path(cmd):
