@@ -17,7 +17,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'resolve_string', 'catr']
+COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'resolve_string', 'catr', 'dump_dex']
 
 usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
@@ -29,6 +29,7 @@ Available commands:
    catr            dump R.java
    resolve         resolve resource name of given numeric id
    resolve_string  resolve value of given string id
+   dump_dex        dump class name from dex file
 '''
 
 def get_cmd_path(cmd):
@@ -223,7 +224,7 @@ def cat_r(cmd, argv):
         dump_r(pkg)
     except Exception as e:
         print >> sys.stderr, "failed to process resource: ", e
-
+        sys.exit(1)
     
 def dump_apk(cmd, argv):
     usage = 'usage: %s %s <file.apk>' % (TOOL_NAME, cmd)
@@ -428,6 +429,44 @@ def resolve_string(cmd, argv):
         print >> sys.stderr, "failed to process resource: ", e
         return None
 
+def dump_dex(cmd, argv):
+    usage = 'usage: %s %s <.dex-or-.apk>' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump class names to stdout.
+
+  dex file or apk file must specified.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+    if len(argv) != 1:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    fname = argv[0]
+    try:
+        infile = open(fname, "rb")
+        indata = infile.read()
+        infile.close()
+        data = None
+        if len(indata) > 4 and indata[0:4] == '\x50\x4b\x03\x04':
+            zfile = zipfile.ZipFile(fname, "r")
+            data = zfile.read("classes.dex")
+            zfile.close()
+        elif len(indata) > 8 and data[0:8] == 'dex\n0350x00':
+            data = indata
+        else:
+            print >> sys.stderr, "input file is not dex or apk file"
+            sys.exit(1)
+        if not data:
+            print >> sys.stderr, "can not read dex data"
+            sys.exit(1)
+        from atool.apk import dex
+        dex.parsedex(data)
+    except Exception as e:
+        print >> sys.stderr, "failed to dump class: ", e
+        sys.exit(1)
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print >> sys.stderr, "no command specified, type 'apktool help' for usage."
@@ -454,3 +493,5 @@ if __name__ == '__main__':
         cat_xml(command, argv)
     elif command == 'catr':
         cat_r(command, argv)
+    elif command == 'dump_dex':
+        dump_dex(command, argv)
