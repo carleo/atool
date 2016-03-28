@@ -334,7 +334,8 @@ class XMLNode:
             return
         outfile.write('%s<%s' % (prefix, self.name))
         if ns:
-            outfile.write(' xmlns:%s="%s"' % (ns[0], ns[1]))
+            for ns_item in ns:
+                outfile.write('\n%sxmlns:%s="%s"' % (indent, ns_item[0], ns_item[1]))
         # on same line for sole attribute
         if ns == None and len(self.attributes) == 1:
             attr = self.attributes[0]
@@ -881,7 +882,7 @@ class AXMLParser:
             error("multiple element at toplevel")
         root = self.curnode.children[0]
         if self.savedns:
-            return (root, self.savedns[-1])
+            return (root, self.savedns)
         else:
             return (root, None)
 
