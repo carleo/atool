@@ -58,6 +58,11 @@ def parsedex(data):
         error("dex magic unmatch")
     off = 56
     (str_ids_size, str_ids_off, type_ids_size, type_ids_off) = unpack('<IIII', data[off:off+16])
+    # proto_ids_size, proto_ids_off, field_ids_size, field_ids_off, method_ids_size, method_ids_off
+    off = 88
+    (method_ids_size, method_ids_off) = unpack('<II', data[off:off+8])
+    print 'method_ids_size', method_ids_size
+    print 'method_ids_off', method_ids_off
     off = 96
     (class_defs_size, class_defs_off) = unpack('<II', data[off:off+8])
     off = str_ids_off

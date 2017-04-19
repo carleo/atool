@@ -17,7 +17,7 @@ from atool.apk.axml import ResourceParser
 from atool.apk.axml import ResObject
 
 TOOL_NAME = 'apktool'
-COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'resolve_string', 'catr', 'dump_dex']
+COMMANDS = ['dumpapk', 'dumpxml', 'cat', 'resolve', 'resolve_string', 'catr', 'dump_dex', 'dex_sum', 'get_icon']
 
 usage = '''usage: apktool <command> [args]
 Type 'apktool <command> -h' for help of specific command.
@@ -330,6 +330,54 @@ def cat_xml(cmd, argv):
     (xml, ns) = parser.parsexml()
     xml.dump(sys.stdout, ns)
 
+
+def get_icon(cmd, argv):
+    usage = 'usage: %s %s <file.apk>' % (TOOL_NAME, cmd)
+    detail = '''
+  get icon file name from given apk file.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+
+    if len(argv) != 1:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    apkfile = argv[0]
+    zfile = zipfile.ZipFile(apkfile, "r")
+    xmlfile = 'AndroidManifest.xml'
+    data = zfile.read(xmlfile)
+    zfile.close()
+    if not data:
+        sys.exit(0)
+    restable = get_archived_resource(apkfile)
+    parser = AXMLParser(data)
+    parser.set_restable(restable)
+    (xml, ns) = parser.parsexml()
+    app_node = None
+    for c in xml.children:
+        if c.name == 'application':
+            app_node = c
+            break
+    if not app_node:
+        raise ValidationError("invalid apk, can not find 'application' in manifest")
+    name_attr = None
+    icon_attr = None
+    for attr in app_node.attributes:
+        if attr.name == 'android:label':
+            name_attr = attr
+        elif attr.name == 'android:icon':
+            icon_attr = attr
+    if icon_attr:
+        s = restable.get_entry_value(icon_attr.entry)
+        if s == None:
+            s = '?'
+        print "%s=%s, file: %s" % (icon_attr.name, icon_attr.value, s)
+    else:
+        print "icon file can not found"
+
+
 def resolve_name(cmd, argv):
     usage = 'usage: %s %s <numeric_id> [<apk_or_arsc>]' % (TOOL_NAME, cmd)
     detail = '''
@@ -467,6 +515,79 @@ def dump_dex(cmd, argv):
         print >> sys.stderr, "failed to dump class: ", e
         sys.exit(1)
 
+def dex_sum(cmd, argv):
+    usage = 'usage: %s %s <.dex-or-.apk>' % (TOOL_NAME, cmd)
+    detail = '''
+  Dump dex summary stdout.
+
+  dex file or apk file must specified.
+'''
+    if len(argv) > 0 and argv[0] in ['-h', '--help']:
+        print usage
+        print detail
+        sys.exit(0)
+    if len(argv) != 1:
+        print >> sys.stderr, usage
+        sys.exit(1)
+    fname = argv[0]
+    try:
+        infile = open(fname, "rb")
+        indata = infile.read()
+        infile.close()
+        data = None
+        if len(indata) > 4 and indata[0:4] == '\x50\x4b\x03\x04':
+            zfile = zipfile.ZipFile(fname, "r")
+            data = zfile.read("classes.dex")
+            zfile.close()
+        elif len(indata) > 8 and indata[0:8] == 'dex\n035\x00':
+            data = indata
+        else:
+            print >> sys.stderr, "input file is not dex or apk file"
+            sys.exit(1)
+        if not data:
+            print >> sys.stderr, "can not read dex data"
+            sys.exit(1)
+        if len(data) < 0x70:
+            error("incomplete header with size %d (min %d)" % (len(data), 0x70))
+        if data[0:8] != 'dex\n035\x00':
+            error("dex magic unmatch")
+        from struct import unpack
+        off = 56
+        (str_ids_size, str_ids_off, type_ids_size, type_ids_off) = unpack('<IIII', data[off:off+16])
+        off = 72
+        (proto_ids_size, proto_ids_off, field_ids_size, field_ids_off) = unpack('<IIII', data[off:off+16])
+        off = 88
+        (method_ids_size, method_ids_off) = unpack('<II', data[off:off+8])
+        off = 96
+        (class_defs_size, class_defs_off) = unpack('<II', data[off:off+8])
+        off = 104
+        (data_size, data_off) = unpack('<II', data[off:off+8])
+        va = (
+            ('str_ids_size', str_ids_size),
+            ('str_ids_off', str_ids_off),
+            ('type_ids_size', type_ids_size),
+            ('type_ids_off', type_ids_off),
+            ('proto_ids_size', proto_ids_size),
+            ('proto_ids_off', proto_ids_off),
+            ('field_ids_size', field_ids_size),
+            ('field_ids_off', field_ids_off),
+            ('method_ids_size', method_ids_size),
+            ('method_ids_off', method_ids_off),
+            ('class_defs_size', class_defs_size),
+            ('class_defs_off', class_defs_off),
+            ('data_size', data_size),
+            ('data_off', data_off)
+        )
+        for (k, v) in va:
+            if k.endswith('_off'):
+                print '%s\t : %d (0x%06x)' % (k, v, v)
+            else:
+                print '%s\t : %d' % (k, v)
+
+    except Exception as e:
+        print >> sys.stderr, "failed to dump class: ", e
+        sys.exit(1)
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print >> sys.stderr, "no command specified, type 'apktool help' for usage."
@@ -495,3 +616,7 @@ if __name__ == '__main__':
         cat_r(command, argv)
     elif command == 'dump_dex':
         dump_dex(command, argv)
+    elif command == 'dex_sum':
+        dex_sum(command, argv)
+    elif command == 'get_icon':
+        get_icon(command, argv)

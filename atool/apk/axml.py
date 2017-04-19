@@ -239,6 +239,8 @@ class ResObject:
     def __init__(self):
         self.id_map = {}
         self.name_map = {}
+        # for ResTable
+        self.strpool = None
 
     def add(self, item):
         if self.id_map.has_key(item.id):
@@ -258,6 +260,18 @@ class ResObject:
 
     def get_by_name(self, name):
         return self.name_map.get(name)
+
+class ResTable(ResObject):
+    def __init__(self):
+        ResObject.__init__(self)
+        self.strpool = None
+
+    def get_entry_value(self, entry):
+        if (self.strpool != None and entry != None and entry.value != None
+            and entry.value.dataType == TYPE_STRING):
+            return self.strpool.get_string(entry.value.data)
+        else:
+            return None
 
 class ResIdObject(ResObject):
     def __init__(self, myid, name):
@@ -306,9 +320,10 @@ class ResTableEntry:
         self.extra = {}
 
 class XMLAttribute:
-    def __init__(self, name, value):
+    def __init__(self, name, value, entry):
         self.name = name
         self.value = value
+        self.entry = entry
 
 class XMLNode:
     def __init__(self, name, isText=False):
@@ -378,7 +393,7 @@ class AXMLParser:
         self.data = data
         self.debug = debug
 
-        self.restable = ResObject()
+        self.restable = ResTable()
 
         self.namespaces = []
         self.savedns = []
@@ -512,6 +527,19 @@ class AXMLParser:
         if entry == None:
             return None
         return (package.name, restype.name, entry.name)
+
+    def dereference_entry(self, resid):
+        if self.restable == None:
+            return None
+        (pid, tid, eid) = self.decode_res_id(resid)
+        package = self.restable.get_by_id(pid)
+        if package == None:
+            return None
+        restype = package.get_by_id(tid)
+        if restype == None:
+            return None
+        entry = restype.get_by_id(eid)
+        return entry
 
     def resolve_string(self, pkg_name, res_name):
         if self.restable == None:
@@ -787,10 +815,12 @@ class AXMLParser:
             if name == None:
                 error("can not get attribute name #%d in pool" % (nameid))
             fullname = ns + name
+            entry = None
             if a_type == TYPE_NULL:
                 value = "(null)"
             elif a_type == TYPE_REFERENCE:
                 value = self.get_refer_name(a_data)
+                entry = self.dereference_entry(a_data)
                 # new id
                 if fullname == "android:id":
                     value = "@+%s" % (value)
@@ -818,7 +848,7 @@ class AXMLParser:
                 value = self.get_color_str(a_data, a_type)
             else:
                 value = "(type 0x%x)0x%x" % (a_type, a_data)
-            attr = XMLAttribute(fullname, value)
+            attr = XMLAttribute(fullname, value, entry)
             node.addAttr(attr)
             if debug:
                 print_debug("    ATTR %s=%s" % (attr.name, attr.value))
@@ -1085,7 +1115,7 @@ class ResourceParser(AXMLParser):
         offset = 0
         data = self.data
         debug = self.debug
-        res_table = ResObject()
+        res_table = ResTable()
         if len(data) < 12:
             error("invalid resource table file ( size < 12)")
         (htype, hsize, size) = self.parse_header(offset, True)
@@ -1113,4 +1143,5 @@ class ResourceParser(AXMLParser):
         for pkg in pkg_list:
             if not drop_android or pkg.name != 'android':
                 res_table.add(package)
+        res_table.strpool = self.strpool
         return res_table
