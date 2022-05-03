@@ -267,8 +267,8 @@ def dump_apk(cmd, argv):
     for fname in flist:
         if not fname.endswith(".xml"):
             continue
-        if not (fname == 'AndroidManifest.xml' or fname.startswith("res/")):
-            continue
+        # if not (fname == 'AndroidManifest.xml' or fname.startswith("res/")):
+        #     continue
         data = zfile.read(fname)
         fname = fname.lstrip("/")
         print "processing", fname
@@ -478,7 +478,7 @@ def resolve_string(cmd, argv):
         return None
 
 def dump_dex(cmd, argv):
-    usage = 'usage: %s %s <.dex-or-.apk>' % (TOOL_NAME, cmd)
+    usage = 'usage: %s %s  <.dex-or-.apk>' % (TOOL_NAME, cmd)
     detail = '''
   Dump class names to stdout.
 
@@ -493,24 +493,35 @@ def dump_dex(cmd, argv):
         sys.exit(1)
     fname = argv[0]
     try:
+        from atool.apk import dex
         infile = open(fname, "rb")
         indata = infile.read()
         infile.close()
         data = None
         if len(indata) > 4 and indata[0:4] == '\x50\x4b\x03\x04':
             zfile = zipfile.ZipFile(fname, "r")
-            data = zfile.read("classes.dex")
+            flist = zfile.namelist()
+            for fname in flist:
+                if not fname.endswith(".dex"):
+                    continue
+                data = zfile.read(fname)
+                (field_ids_size, method_ids_size, class_defs_size) = dex.parsedex(data, True)
+                print "--", fname, "--"
+                print "  field_size:  %5d" % (field_ids_size)
+                print "  method_size: %5d" % (method_ids_size)
+                print "  classs_size: %5d" % (class_defs_size)
             zfile.close()
         elif len(indata) > 8 and data[0:8] == 'dex\n0350x00':
             data = indata
+            print "field_size:  %5d" % (field_ids_size)
+            print "method_size: %5d" % (method_ids_size)
+            print "classs_size: %5d" % (class_defs_size)
         else:
             print >> sys.stderr, "input file is not dex or apk file"
             sys.exit(1)
         if not data:
             print >> sys.stderr, "can not read dex data"
             sys.exit(1)
-        from atool.apk import dex
-        dex.parsedex(data)
     except Exception as e:
         print >> sys.stderr, "failed to dump class: ", e
         sys.exit(1)

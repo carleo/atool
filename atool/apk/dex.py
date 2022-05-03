@@ -51,7 +51,7 @@ def decode_sleb128(data, offset):
             return (val, curoff - offset)
     error("failed to decode sleb128 integer at offset %d" % (offset))
 
-def parsedex(data):
+def parsedex(data, size_only=False):
     if len(data) < 0x70:
         error("incomplete header with size %d (min %d)" % (len(data), 0x70))
     if data[0:8] != 'dex\n035\x00':
@@ -59,12 +59,16 @@ def parsedex(data):
     off = 56
     (str_ids_size, str_ids_off, type_ids_size, type_ids_off) = unpack('<IIII', data[off:off+16])
     # proto_ids_size, proto_ids_off, field_ids_size, field_ids_off, method_ids_size, method_ids_off
+    off = 80
+    (field_ids_size, field_ids_off) = unpack('<II', data[off:off+8])
     off = 88
     (method_ids_size, method_ids_off) = unpack('<II', data[off:off+8])
-    print 'method_ids_size', method_ids_size
-    print 'method_ids_off', method_ids_off
+    # print 'method_ids_size', method_ids_size
+    # print 'method_ids_off', method_ids_off
     off = 96
     (class_defs_size, class_defs_off) = unpack('<II', data[off:off+8])
+    if size_only:
+        return (field_ids_size, method_ids_size, class_defs_size)
     off = str_ids_off
     debug("string count: %s" % (str_ids_size))
     string_ids = []
