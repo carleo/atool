@@ -45,20 +45,20 @@ def unpack_image(filename, extractramdisk):
 
     outfh = open(imgname + "-kernel", "w")
     if not dump_file(fh, outfh, kernel_size):
-        print "incomplete kernel part"
+        print("incomplete kernel part")
         sys.exit(1)
     outfh.close()
     
     outfh = open(imgname + "-ramdisk.cpio.gz", "w")
     if not dump_file(fh, outfh, ramdisk_size):
-        print "incomplete ramdisk part"
+        print("incomplete ramdisk part")
         sys.exit(1)
     outfh.close()
 
     if second_size > 0:
         outfh = open(imgname + "-second", "w")
         if not dump_file(fh, outfh, second_size):
-            print "incomplete second part"
+            print("incomplete second part")
             sys.exit(1)
         outfh.close()
 
@@ -68,21 +68,21 @@ def unpack_image(filename, extractramdisk):
         ramdir = imgname + "-ramdisk"
         if os.path.exists(ramdir):
             shutil.rmtree(ramdir)
-            print "remove old ramdisk directory " + ramdir
+            print("remove old ramdisk directory " + ramdir)
 
         os.mkdir(ramdir)
         os.chdir(ramdir)
         os.system("gunzip -c ../%s-ramdisk.cpio.gz | cpio -i" % (imgname))
         os.unlink("../%s-ramdisk.cpio.gz" % (imgname))
-        print "extract ramdisk contents to directory " + imgname + "-ramdisk/"
+        print("extract ramdisk contents to directory " + imgname + "-ramdisk/")
 
 
 def repack_image(kernel, ramdisk, imgfile, product):
     if not os.path.isfile(kernel):
-        print "kernel '%s' is not a regular file" % (kernel)
+        print("kernel '%s' is not a regular file" % (kernel))
         sys.exit(1)
     if not os.path.exists(ramdisk):
-        print "ramdisk '%s' not exists"
+        print("ramdisk '%s' not exists")
         sys.exit(1)
     ramname = ramdisk
     if os.path.isdir(ramdisk):
@@ -100,12 +100,12 @@ def repack_image(kernel, ramdisk, imgfile, product):
 
     if ramname != ramdisk:
         os.unlink(ramname)
-    print "repack image to " + imgfile
+    print("repack image to " + imgfile)
 
 if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option("-p", "--product", dest="product", type="string",
-                      help="product, can be one of %s" % (",".join(PRODUCT_MAP.keys())))
+                      help="product, can be one of %s" % (",".join(list(PRODUCT_MAP.keys()))))
     parser.add_option("-i", "--image", dest="image", type="string",
                       help="image file")
     parser.add_option("-k", "--kernel", dest="kernel", type="string",
@@ -120,7 +120,7 @@ if __name__ == "__main__":
                       default=False, help="unpack image file")
     (options, args) = parser.parse_args()
     if not options.image:
-        print "error: no image file specified"
+        print("error: no image file specified")
         sys.exit(1)
     if options.unpack:
         unpack_image(options.image, options.extract)
@@ -130,10 +130,10 @@ if __name__ == "__main__":
         else:
             product = options.product
         if product not in PRODUCT_MAP:
-            print "product should be one of %s" % (",".join(PRODUCT_MAP.keys()))
+            print("product should be one of %s" % (",".join(list(PRODUCT_MAP.keys()))))
             sys.exit(1)
         if not options.kernel or not options.ramdisk:
-            print "error: both kernel and ramdisk must be specified"
+            print("error: both kernel and ramdisk must be specified")
             sys.exit(1)
         else:
             repack_image(options.kernel, options.ramdisk, options.image, product)

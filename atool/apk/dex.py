@@ -4,11 +4,11 @@ import sys
 from struct import unpack
 
 def error(msg):
-    print >> sys.stderr, msg
+    print(msg, file=sys.stderr)
     sys.exit(1)
 
 def debug(msg):
-    print >> sys.stdout, msg
+    print(msg, file=sys.stdout)
 
 def decode_uleb128(data, offset=0):
     '''decode leb128-encoded integer, return a tuple with value and lenth'''
@@ -72,7 +72,7 @@ def parsedex(data, size_only=False):
     off = str_ids_off
     debug("string count: %s" % (str_ids_size))
     string_ids = []
-    for i in xrange(0, str_ids_size):
+    for i in range(0, str_ids_size):
         (str_off,) = unpack('<I', data[off:off+4])
         off += 4
         (utf16_size, s_size) = decode_uleb128(data, str_off)
@@ -87,7 +87,7 @@ def parsedex(data, size_only=False):
     off = type_ids_off
     type_ids = []
     debug("type id count: %s" % (type_ids_size))
-    for i in xrange(0, type_ids_size):
+    for i in range(0, type_ids_size):
         (idx,) = unpack('<I', data[off:off+4])
         off += 4
         if idx >= len(string_ids):
@@ -96,7 +96,7 @@ def parsedex(data, size_only=False):
     off = class_defs_off
     debug("class defs count: %s" % (class_defs_size))
     w = len(str(class_defs_size))
-    for i in xrange(0, class_defs_size):
+    for i in range(0, class_defs_size):
         (class_idx,) = unpack('<I', data[off:off+4])
         off += 32
         if class_idx >= len(type_ids):

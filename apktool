@@ -4,8 +4,8 @@
 import os
 import sys
 import glob
-# import zipfile
-from atool import zipfile
+import zipfile
+import functools
 
 # fix sys path to include our lib
 DIR_PATH = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
@@ -60,9 +60,11 @@ def cmp_version(v1, v2):
         c1 = a1.pop(0)
         c2 = a2.pop(0)
         if c1.isdigit() and c2.isdigit():
-            return cmp(int(c1), int(c2))
+            tmp1 = int(c1)
+            tmp2 = int(c2)
+            return (tmp1 > tmp2) - (tmp1 < tmp2)
         else:
-            return cmp(c1, c2)
+            return (c1 > c2) - (c1 < c2)
 
 def get_android_jar(sdk_dir):
     '''Get android system resource file (android.jar)'''
@@ -75,7 +77,7 @@ def get_android_jar(sdk_dir):
     if not platforms:
         return None
     vs = [item[i:] for item in platforms]
-    vs.sort(cmp=cmp_version)
+    vs.sort(key=functools.cmp_to_key(cmp_version))
     jar = prefix + vs[-1] + "/android.jar"
     if os.path.isfile(jar):
         return jar
@@ -111,12 +113,12 @@ def dump_xml(cmd, argv):
   most xml attributes will be dumped as numeric value.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) < 1 or len(argv) > 2:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     restable = ResObject()
     androidjar = get_android_resource()
@@ -140,7 +142,7 @@ def dump_xml(cmd, argv):
                 if res:
                     restable.update(res)
         except Exception as e:
-            print >> sys.stderr, "failed to process resource: ", e
+            print("failed to process resource: ", e, file=sys.stderr)
 
     infile = open(argv[0], "rb")
     indata = infile.read()
@@ -156,7 +158,7 @@ def get_archived_resource(archive):
         try:
             zfile = zipfile.ZipFile(archive, "r")
         except Exception as e1:
-            print >> sys.stderr, "failed to open zip archive:", archive, e1
+            print("failed to open zip archive:", archive, e1, file=sys.stderr)
             return None
         data = zfile.read("resources.arsc")
         zfile.close()
@@ -166,7 +168,7 @@ def get_archived_resource(archive):
     except Exception as e:
         if zfile:
             zfile.close()
-        print >> sys.stderr, "failed to process resources.arsc:", e
+        print("failed to process resources.arsc:", e, file=sys.stderr)
     return None
 
 def make_res_id(pkgid, typeid, entryid):
@@ -175,17 +177,17 @@ def make_res_id(pkgid, typeid, entryid):
             (0x0000ffff & (entryid)) )
 
 def dump_r(pkg, outfile=sys.stdout):
-    print >> outfile, "package %s\n" % (pkg.name)
-    print >> outfile, "public final class R {"
+    print("package %s\n" % (pkg.name), file=outfile)
+    print("public final class R {", file=outfile)
     for tname in sorted(pkg.name_map.keys()):
         t = pkg.name_map[tname]
-        print >> outfile, "    public static final class %s {" % (t.name)
+        print("    public static final class %s {" % (t.name), file=outfile)
         for k in sorted(t.id_map.keys()):
             e = t.id_map[k]
             eid = make_res_id(pkg.id, t.id, e.id)
-            print >> outfile, "        public static final int %s = 0x%08x;  // %d" % (e.name, eid, eid)
-        print >> outfile, "    }\n"
-    print >> outfile, "}"
+            print("        public static final int %s = 0x%08x;  // %d" % (e.name, eid, eid), file=outfile)
+        print("    }\n", file=outfile)
+    print("}", file=outfile)
 
 def cat_r(cmd, argv):
     usage = 'usage: %s %s <resources.arsc-or-.apk>' % (TOOL_NAME, cmd)
@@ -195,12 +197,12 @@ def cat_r(cmd, argv):
   resources file or apk file must specified.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) != 1:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
 
     res = None
@@ -214,16 +216,16 @@ def cat_r(cmd, argv):
             parser = ResourceParser(indata)
             res = parser.parse_resources()
         if res == None or len(res.id_map) < 1:
-            print >> std.err, "no package in restable"
+            print("no package in restable", file=std.err)
             return
         if len(res.id_map) != 1:
-            print >> std.err, "multiple package in restable"
+            print("multiple package in restable", file=std.err)
             return
-        ids = res.id_map.keys()
+        ids = list(res.id_map.keys())
         pkg = res.id_map[ids[0]]
         dump_r(pkg)
     except Exception as e:
-        print >> sys.stderr, "failed to process resource: ", e
+        print("failed to process resource: ", e, file=sys.stderr)
         sys.exit(1)
     
 def dump_apk(cmd, argv):
@@ -237,12 +239,12 @@ def dump_apk(cmd, argv):
   most xml attributes will be dumped as numeric value.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) != 1:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     apkfile = argv[0]
     restable = ResObject()
@@ -256,7 +258,7 @@ def dump_apk(cmd, argv):
     indata = infile.read(4)
     infile.close()
     if len(indata) < 4 or indata[0:4] != "\x50\x4b\x03\x04":
-        print >> sys.stderr, "not a apk file: %s" % (apkfile)
+        print("not a apk file: %s" % (apkfile), file=sys.stderr)
         sys.exit(1)
     res = get_archived_resource(apkfile)
     if res:
@@ -271,19 +273,19 @@ def dump_apk(cmd, argv):
         #     continue
         data = zfile.read(fname)
         fname = fname.lstrip("/")
-        print "processing", fname
+        print("processing", fname)
         try:
             parser = AXMLParser(data)
             parser.set_restable(restable)
             (xml, ns) = parser.parsexml()
             dirname = os.path.dirname(fname)
             if dirname and not os.path.exists(dirname):
-                os.makedirs(dirname, 0755)
+                os.makedirs(dirname, 0o755)
             outfile = open(fname, "wb")
             xml.dump(outfile, ns)
             outfile.close()
         except Exception as e:
-            print >> sys.stderr, "  Error:", e
+            print("  Error:", e, file=sys.stderr)
     zfile.close()
 
 
@@ -298,12 +300,12 @@ def cat_xml(cmd, argv):
   most xml attributes will be dumped as numeric value.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) < 1 or len(argv) > 2:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     apkfile = argv[0]
     zfile = zipfile.ZipFile(apkfile, "r")
@@ -337,12 +339,12 @@ def get_icon(cmd, argv):
   get icon file name from given apk file.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) != 1:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     apkfile = argv[0]
     zfile = zipfile.ZipFile(apkfile, "r")
@@ -373,9 +375,9 @@ def get_icon(cmd, argv):
         s = restable.get_entry_value(icon_attr.entry)
         if s == None:
             s = '?'
-        print "%s=%s, file: %s" % (icon_attr.name, icon_attr.value, s)
+        print("%s=%s, file: %s" % (icon_attr.name, icon_attr.value, s))
     else:
-        print "icon file can not found"
+        print("icon file can not found")
 
 
 def resolve_name(cmd, argv):
@@ -387,12 +389,12 @@ def resolve_name(cmd, argv):
   will also be searched.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
 
     if len(argv) < 1 or len(argv) > 2:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     idstr = argv[0]
     radix = 10
@@ -402,10 +404,10 @@ def resolve_name(cmd, argv):
     try:
         rid = int(idstr, radix)
     except:
-        print >> sys.stderr, "invalid id, not a number: ", idstr
+        print("invalid id, not a number: ", idstr, file=sys.stderr)
         sys.exit(1)
     if rid <= 0 or rid >= 0xffffffff:
-        print >> sys.stderr, "invalid id: ", idstr
+        print("invalid id: ", idstr, file=sys.stderr)
         sys.exit(1)
 
     restable = ResObject()
@@ -426,15 +428,15 @@ def resolve_name(cmd, argv):
                 m = parser.parse_resources()
             restable.update(m)
         except Exception as e:
-            print >> sys.stderr, "failed to process resource: ", e
+            print("failed to process resource: ", e, file=sys.stderr)
 
     parser = ResourceParser("")
     parser.set_restable(restable)
     result = parser.dereference_resource(rid)
     if result == None:
-        print >> sys.stderr, "can not resolve given id: 0x%08x" % (rid)
+        print("can not resolve given id: 0x%08x" % (rid), file=sys.stderr)
         sys.exit(1)
-    print "0x%08x %s %s %s" % (rid, result[0], result[1], result[2])
+    print("0x%08x %s %s %s" % (rid, result[0], result[1], result[2]))
 
 def resolve_string(cmd, argv):
     usage = 'usage: %s %s <apk_or_arsc> <string_name>' % (TOOL_NAME, cmd)
@@ -442,11 +444,11 @@ def resolve_string(cmd, argv):
   Resolve value of given string name.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
     if len(argv) != 2:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     string_name = argv[1]
     res_file = argv[0]
@@ -463,18 +465,18 @@ def resolve_string(cmd, argv):
                 zfile.close()
                 zfile = None
             except Exception as e1:
-                print >> sys.stderr, "failed to process resource: ", e1
+                print("failed to process resource: ", e1, file=sys.stderr)
                 return None
         if indata:
             parser = ResourceParser(indata)
             restable = parser.parse_resources()
             if not restable.name_map:
                 return None
-            package = restable.name_map.values()[0]
+            package = list(restable.name_map.values())[0]
             parser.set_restable(restable)
-            print parser.resolve_string(package.name, string_name)
+            print(parser.resolve_string(package.name, string_name))
     except Exception as e:
-        print >> sys.stderr, "failed to process resource: ", e
+        print("failed to process resource: ", e, file=sys.stderr)
         return None
 
 def dump_dex(cmd, argv):
@@ -485,11 +487,11 @@ def dump_dex(cmd, argv):
   dex file or apk file must specified.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
     if len(argv) != 1:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     fname = argv[0]
     try:
@@ -506,24 +508,24 @@ def dump_dex(cmd, argv):
                     continue
                 data = zfile.read(fname)
                 (field_ids_size, method_ids_size, class_defs_size) = dex.parsedex(data, True)
-                print "--", fname, "--"
-                print "  field_size:  %5d" % (field_ids_size)
-                print "  method_size: %5d" % (method_ids_size)
-                print "  classs_size: %5d" % (class_defs_size)
+                print("--", fname, "--")
+                print("  field_size:  %5d" % (field_ids_size))
+                print("  method_size: %5d" % (method_ids_size))
+                print("  classs_size: %5d" % (class_defs_size))
             zfile.close()
         elif len(indata) > 8 and data[0:8] == 'dex\n0350x00':
             data = indata
-            print "field_size:  %5d" % (field_ids_size)
-            print "method_size: %5d" % (method_ids_size)
-            print "classs_size: %5d" % (class_defs_size)
+            print("field_size:  %5d" % (field_ids_size))
+            print("method_size: %5d" % (method_ids_size))
+            print("classs_size: %5d" % (class_defs_size))
         else:
-            print >> sys.stderr, "input file is not dex or apk file"
+            print("input file is not dex or apk file", file=sys.stderr)
             sys.exit(1)
         if not data:
-            print >> sys.stderr, "can not read dex data"
+            print("can not read dex data", file=sys.stderr)
             sys.exit(1)
     except Exception as e:
-        print >> sys.stderr, "failed to dump class: ", e
+        print("failed to dump class: ", e, file=sys.stderr)
         sys.exit(1)
 
 def dex_sum(cmd, argv):
@@ -534,11 +536,11 @@ def dex_sum(cmd, argv):
   dex file or apk file must specified.
 '''
     if len(argv) > 0 and argv[0] in ['-h', '--help']:
-        print usage
-        print detail
+        print(usage)
+        print(detail)
         sys.exit(0)
     if len(argv) != 1:
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
     fname = argv[0]
     try:
@@ -553,10 +555,10 @@ def dex_sum(cmd, argv):
         elif len(indata) > 8 and indata[0:8] == 'dex\n035\x00':
             data = indata
         else:
-            print >> sys.stderr, "input file is not dex or apk file"
+            print("input file is not dex or apk file", file=sys.stderr)
             sys.exit(1)
         if not data:
-            print >> sys.stderr, "can not read dex data"
+            print("can not read dex data", file=sys.stderr)
             sys.exit(1)
         if len(data) < 0x70:
             error("incomplete header with size %d (min %d)" % (len(data), 0x70))
@@ -591,28 +593,28 @@ def dex_sum(cmd, argv):
         )
         for (k, v) in va:
             if k.endswith('_off'):
-                print '%s\t : %d (0x%06x)' % (k, v, v)
+                print('%s\t : %d (0x%06x)' % (k, v, v))
             else:
-                print '%s\t : %d' % (k, v)
+                print('%s\t : %d' % (k, v))
 
     except Exception as e:
-        print >> sys.stderr, "failed to dump class: ", e
+        print("failed to dump class: ", e, file=sys.stderr)
         sys.exit(1)
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print >> sys.stderr, "no command specified, type 'apktool help' for usage."
+        print("no command specified, type 'apktool help' for usage.", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
     argv = sys.argv[2:]
 
     if command in ['-h', '-help', '--help', 'help']:
-        print usage,
+        print(usage, end=' ')
         sys.exit(0)
 
     if command not in COMMANDS:
-        print >> sys.stderr, "apktool: unknown command '%s'. See 'apktool help'." % (command)
+        print("apktool: unknown command '%s'. See 'apktool help'." % (command), file=sys.stderr)
     elif command == 'dumpxml':
         dump_xml(command, argv)
     elif command == 'dumpapk':

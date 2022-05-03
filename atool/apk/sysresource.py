@@ -60,7 +60,7 @@ class IdField:
 
 def error(filename, msg):
     errormsg = "error in '%s': %s" % (filename, msg)
-    print >> sys.stderr, errormsg
+    print(errormsg, file=sys.stderr)
     raise BadClassFile(errormsg)
 
 def process_jar(jarfile):
@@ -100,7 +100,7 @@ def process_class(data, filename, checkname=False):
     constant_pool = []
     # constant_pool table is indexed from 1 to constant_pool_count-1
     constant_pool.append(None)
-    for i in xrange(1, pool_count):
+    for i in range(1, pool_count):
         if offset + 3 > end:
             error(filename, "incomplete cp_info #" % (i))
         (info_tag,) = unpack('>B', data[offset:offset+1])
@@ -179,7 +179,7 @@ def process_class(data, filename, checkname=False):
     offset += 2
     id_fields = []
     # fields[]
-    for i in xrange(0, fields_count):
+    for i in range(0, fields_count):
         if offset + 8 > end:
             error(filename, "incomplete field #%d" % (i))
         field = IdField()
@@ -197,7 +197,7 @@ def process_class(data, filename, checkname=False):
         if descriptor != "I":
             error(filename, "non int field found '%s' #%d" % (descriptor, i))
 
-        for j in xrange(0, attr_count):
+        for j in range(0, attr_count):
             if offset + 6 > end:
                 error(filename, "incomplete attribute #%d of field #%d" % (j, i))
             (attr_index, attr_length) = unpack('>HI', data[offset:offset+6])

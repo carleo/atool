@@ -243,7 +243,7 @@ class ResObject:
         self.strpool = None
 
     def add(self, item):
-        if self.id_map.has_key(item.id):
+        if item.id in self.id_map:
             name = self.id_map[item.id].name
             if name != item.name:
                 return False
@@ -252,7 +252,7 @@ class ResObject:
         return True
 
     def update(self, resource):
-        for item in resource.id_map.values():
+        for item in list(resource.id_map.values()):
             self.add(item)
 
     def get_by_id(self, objid):
@@ -372,7 +372,7 @@ def error(msg):
     raise Exception(msg)
 
 def print_debug(msg):
-    print >> sys.stderr, msg
+    print(msg, file=sys.stderr)
 
 def int2float(value):
     '''interpret bytes int as float'''
@@ -433,7 +433,7 @@ class AXMLParser:
         if value_type == TYPE_INT_HEX:
             valuestr = "0x%x" % (data)
         # one pass loop, just for quick break
-        for i in xrange(0, 1):
+        for i in range(0, 1):
             if self.restable == None:
                 break
             pkgname = pkgname.rstrip(":")
@@ -457,7 +457,7 @@ class AXMLParser:
             if not entry.resolved:
                 break
             if value_type == TYPE_INT_DEC:
-                for (k, v) in entry.extra.items():
+                for (k, v) in list(entry.extra.items()):
                     if k == data:
                         return str(v)
                 break
@@ -465,7 +465,7 @@ class AXMLParser:
                 # more than one flag may set same bit
                 val = 0
                 include = []
-                for (k, v) in entry.extra.items():
+                for (k, v) in list(entry.extra.items()):
                     if data == k:
                         return v
                     if (k & data) == k and data != 0:
@@ -478,15 +478,15 @@ class AXMLParser:
                     keep = [True] * len(include)
                     include.sort()
                     size = len(include)
-                    for i in xrange(0, size):
+                    for i in range(0, size):
                         val = 0
-                        for j in xrange(0, size):
+                        for j in range(0, size):
                             if j != i and keep[j]:
                                 val = val | include[j]
                         if (val | include[i]) == val:
                             keep[i] = False
                     rest = []
-                    for i in xrange(0, size):
+                    for i in range(0, size):
                         if keep[i]:
                             rest.append(include[i])
                     include = rest
@@ -500,7 +500,7 @@ class AXMLParser:
         if entry.resolved != None:
             return
         extra = {}
-        for (k, v) in entry.extra.items():
+        for (k, v) in list(entry.extra.items()):
             ref = self.dereference_resource(v)
             if ref == None:
                 entry.resolved = False
@@ -665,7 +665,7 @@ class AXMLParser:
         debug = self.debug
         (htype, hsize, size) = self.parse_header(offset)
         resids = []
-        for off in xrange(offset + hsize, offset + size, 4):
+        for off in range(offset + hsize, offset + size, 4):
             (resid,) = unpack('<I', data[off:off+4])
             resids.append(resid)
         return resids
@@ -687,7 +687,7 @@ class AXMLParser:
             if hsize + stringCount * 4 > size:
                 error("Bad string block: string index array with %d items extends past chunk size %d" % (stringCount, size))
             off = offset + hsize
-            for i in xrange(0, stringCount):
+            for i in range(0, stringCount):
                 (index,) = unpack('<I', data[off:off+4])
                 sp.entries.append(index)
                 off += 4
@@ -702,7 +702,7 @@ class AXMLParser:
             if poolsize == 0:
                 error("Bad string block: stringCount is %d but pool size is 0" % (stringCount))
             pooloff = offset + stringStart
-            for i in xrange(0, len(sp.entries)):
+            for i in range(0, len(sp.entries)):
                 off = sp.entries[i]
                 if off + 1 > poolsize:
                     error("Bad string block: string #%d entry is at %d, past end at %d" % (i, off, poolsize))
@@ -724,7 +724,7 @@ class AXMLParser:
                         error("Bad string block: string #%d entry is at %d with length %d past end at %d" % (i, off, strlen, poolsize+pooloff))
                     # if debug:
                     #     print_debug("  string #%d %d %d %d" % (i, pooloff + sp.entries[i], off, strlen))
-                    s = data[off:off+strlen].decode('UTF-8').encode('UTF-8')
+                    s = data[off:off+strlen].decode('UTF-8')
                 else:
                     (strlen,) = unpack('<H', data[off:off+2])
                     off += 2
@@ -737,7 +737,7 @@ class AXMLParser:
                         error("Bad string block: string #%d entry is at %d with length %d past end at %d" % (i, off, strlen, poolsize + pooloff))
                     # if debug:
                     #     print_debug("  string #%d %d %d %d" % (i, pooloff + sp.entries[i], off, strlen))
-                    s = data[off:off+strlen].decode('UTF-16LE').encode('UTF-8')
+                    s = data[off:off+strlen].decode('UTF-16LE')
                 sp.entries[i] = s
                 # if debug:
                 #     print_debug("    [%d] %d %d" % (i, off, strlen))
@@ -805,7 +805,7 @@ class AXMLParser:
         if debug:
             print_debug("  ELEMENT %s" % (node.name))
         off = offset + hsize + attrStart
-        for i in xrange(0, attrCount):
+        for i in range(0, attrCount):
             (nsid, nameid, valueid, a_size, a_res0, a_type, a_data) = unpack('<IIIHBBI', data[off:off+20])
             if debug:
                 print_debug("    ATTR ns=%d, name=%d, value=%d, size=%d, type=0x%02x, data=%d" % (nsid, nameid, valueid, a_size, a_type, a_data))
@@ -978,7 +978,7 @@ class ResourceParser(AXMLParser):
             package.add(restype)
         end = offset + size
         indexoff = offset + hsize
-        for i in xrange(0, entryCount):
+        for i in range(0, entryCount):
             (index,) = unpack('<I', data[indexoff:indexoff+4])
             if i == entryCount - 1:
                 entryend = end
