@@ -1083,7 +1083,7 @@ class ResourceParser(AXMLParser):
         off = offset + 12
         # package name are UTF-16 encoded with NULL terminated, 128 * 2 bytes at most
         end = off
-        while end < off + 256 and data[end:end+2] != '\x00\x00':
+        while end < off + 256 and (data[end] != 0 or data[end+1] != 0):
             end += 2
         pkgname = data[off:end].decode('UTF-16LE')
         off += 256
@@ -1142,6 +1142,6 @@ class ResourceParser(AXMLParser):
         drop_android = (len(pkg_list) > 1)
         for pkg in pkg_list:
             if not drop_android or pkg.name != 'android':
-                res_table.add(package)
+                res_table.add(pkg)
         res_table.strpool = self.strpool
         return res_table
